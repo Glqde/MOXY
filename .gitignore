@@ -1,0 +1,6 @@
+moxy-frontend/node_modules/
+moxy-backend/__pycache__/
+moxy-backend/.env
+moxy-frontend/.env
+*.pyc
+.DS_Store
