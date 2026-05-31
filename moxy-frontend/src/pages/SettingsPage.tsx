@@ -138,7 +138,6 @@ function ThemeSelector({ current, onChange }: { current: string; onChange: (t: s
   const themes = [
     { id: "dark", label: "Dark", icon: "🌙" },
     { id: "light", label: "Light", icon: "☀️" },
-    { id: "system", label: "System", icon: "💻" },
   ];
   return (
     <div style={{ display: "flex", gap: 8 }}>
