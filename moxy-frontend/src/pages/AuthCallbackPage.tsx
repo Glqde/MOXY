@@ -11,7 +11,7 @@ export function AuthCallbackPage() {
 
   useEffect(() => {
     // Give Supabase JS a moment to process the auth code from the URL
-    const timer = setTimeout(() => navigate("/", { replace: true }), 1200);
+    const timer = setTimeout(() => navigate("/", { replace: true }), 3000);
     return () => clearTimeout(timer);
   }, []);
 
