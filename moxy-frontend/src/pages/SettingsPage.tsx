@@ -290,7 +290,7 @@ export function SettingsPage() {
             label="name"
             value={me.full_name}
             placeholder="Your name"
-            onSave={(v) => updateMe.mutateAsync({ full_name: v })}
+            onSave={async (v) => { await updateMe.mutateAsync({ full_name: v }); }}
           />
         </Row>
 
@@ -299,7 +299,7 @@ export function SettingsPage() {
             label="username"
             value={me.username ?? ""}
             placeholder="Set a username"
-            onSave={(v) => updateMe.mutateAsync({ username: v })}
+            onSave={async (v) => { await updateMe.mutateAsync({ username: v }); }}
           />
         </Row>
 
