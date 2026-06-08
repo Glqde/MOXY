@@ -2,23 +2,14 @@
 import { useMemo } from "react";
 import { useGroups, useTasks } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
+import { useColors } from "@/lib/theme";
 import type { TaskRead } from "@/types";
-
-const C = {
-  bg: "#0A0A0F", bgCard: "#111118", bgElevated: "#16161F",
-  border: "rgba(255,255,255,0.07)",
-  accent: "#7C6FFF", accentSoft: "rgba(124,111,255,0.12)", accentGlow: "rgba(124,111,255,0.3)",
-  green: "#22C55E", greenSoft: "rgba(34,197,94,0.12)",
-  amber: "#F59E0B", amberSoft: "rgba(245,158,11,0.12)",
-  red: "#EF4444", redSoft: "rgba(239,68,68,0.12)",
-  blue: "#3B82F6",
-  text: "#F0F0FF", textMuted: "rgba(240,240,255,0.45)", textSub: "rgba(240,240,255,0.22)",
-};
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, color, emoji }: {
   label: string; value: string | number; sub?: string; color: string; emoji: string;
 }) {
+  const C = useColors();
   return (
     <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px" }}>
       <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 8 }}>{emoji} {label}</div>
@@ -30,6 +21,7 @@ function StatCard({ label, value, sub, color, emoji }: {
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 function BarChart({ data, color }: { data: { label: string; value: number }[]; color: string }) {
+  const C = useColors();
   const max = Math.max(...data.map((d) => d.value), 1);
   return (
     <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
@@ -58,6 +50,7 @@ function BarChart({ data, color }: { data: { label: string; value: number }[]; c
 
 // ── Heatmap ───────────────────────────────────────────────────────────────────
 function Heatmap({ data }: { data: number[] }) {
+  const C = useColors();
   const max = Math.max(...data, 1);
   const palette = ["#16161F", "#3D2FA3", "#5B46D4", "#7C6FFF", "#A899FF"];
   return (
@@ -86,14 +79,12 @@ function Heatmap({ data }: { data: number[] }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function AnalyticsPage() {
+  const C = useColors();
   const { activeGroupId } = useUIStore();
   const { data: groups = [] } = useGroups();
-
-  // Load tasks for ALL groups for cross-group analytics
   const group = groups.find((g) => g.id === activeGroupId);
   const { data: tasks = [], isLoading } = useTasks(activeGroupId ?? "");
 
-  // ── Derived metrics ───────────────────────────────────────────────────────
   const metrics = useMemo(() => {
     const total = tasks.length;
     const completed = tasks.filter((t) => t.is_completed_this_period).length;
@@ -101,29 +92,23 @@ export function AnalyticsPage() {
     const maxStreak = tasks.reduce((m, t) => Math.max(m, t.completion_streak), 0);
     const totalAll = tasks.reduce((s, t) => s + t.times_completed_total, 0);
 
-    // Category breakdown
     const catMap: Record<string, number> = {};
     tasks.forEach((t) => {
       const c = t.category ?? "Other";
       catMap[c] = (catMap[c] ?? 0) + t.times_completed_total;
     });
-    const categories = Object.entries(catMap)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5);
+    const categories = Object.entries(catMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
     const catTotal = categories.reduce((s, [, v]) => s + v, 1);
 
-    // Priority breakdown
     const high   = tasks.filter((t) => t.priority === "high").length;
     const medium = tasks.filter((t) => t.priority === "medium").length;
     const low    = tasks.filter((t) => t.priority === "low").length;
 
-    // Simulated 28-day heatmap (real data would come from activity_logs API)
     const heatmap = Array.from({ length: 28 }, (_, i) => {
       const seed = (i * 7 + 13) % 29;
       return seed < 8 ? 0 : Math.floor((seed / 29) * 6);
     });
 
-    // Weekly bars (simulated from completion data)
     const weekBars = [
       { label: "Mon", value: Math.floor(totalAll * 0.18) },
       { label: "Tue", value: Math.floor(totalAll * 0.15) },
@@ -134,7 +119,6 @@ export function AnalyticsPage() {
       { label: "Sun", value: Math.floor(totalAll * 0.11) },
     ];
 
-    // Productivity score (0–100)
     const score = total === 0 ? 0 : Math.min(100,
       Math.round((completed / total) * 60 + (maxStreak / 30) * 25 + (totalAll / 200) * 15)
     );
@@ -152,9 +136,10 @@ export function AnalyticsPage() {
     );
   }
 
+  const blue = "#3B82F6";
+
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>Analytics</h1>
         <p style={{ color: C.textMuted, fontSize: 13, margin: 0 }}>
@@ -169,7 +154,7 @@ export function AnalyticsPage() {
           {/* Score hero */}
           <div style={{
             background: `linear-gradient(135deg, ${C.accentSoft}, transparent)`,
-            border: `1px solid ${C.accentGlow}`,
+            border: `1px solid ${C.accent}4D`,
             borderRadius: 16, padding: "24px", marginBottom: 20,
             display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20,
           }}>
@@ -229,9 +214,9 @@ export function AnalyticsPage() {
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
             <div style={{ color: C.text, fontSize: 13, fontWeight: 500, marginBottom: 16 }}>Priority breakdown</div>
             {[
-              { label: "High", count: metrics.high, color: C.red },
+              { label: "High",   count: metrics.high,   color: C.red },
               { label: "Medium", count: metrics.medium, color: C.amber },
-              { label: "Low", count: metrics.low, color: C.green },
+              { label: "Low",    count: metrics.low,    color: C.green },
             ].map((p) => {
               const pct = metrics.total ? Math.round((p.count / metrics.total) * 100) : 0;
               return (
@@ -254,7 +239,7 @@ export function AnalyticsPage() {
               <div style={{ color: C.text, fontSize: 13, fontWeight: 500, marginBottom: 16 }}>Category breakdown</div>
               {metrics.categories.map(([name, count], i) => {
                 const pct = Math.round((count / metrics.catTotal) * 100);
-                const colors = [C.accent, C.green, C.amber, C.red, C.blue];
+                const colors = [C.accent, C.green, C.amber, C.red, blue];
                 return (
                   <div key={name} style={{ marginBottom: 14 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>

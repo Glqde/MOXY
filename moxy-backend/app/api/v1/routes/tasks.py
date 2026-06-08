@@ -74,14 +74,13 @@ async def update_task(
     current_user: User = Depends(get_current_user),
 ):
     membership = await _require_member(group_id, current_user, db)
-    # Only admins can update tasks (or the task creator — extend as needed)
     if membership.role != "admin":
         raise HTTPException(403, "Only admins can edit tasks")
     svc = TaskService(db)
     task = await svc.update(task_id, payload)
     if not task:
         raise HTTPException(404, "Task not found")
-    return task
+    return await svc.get_by_id(task.id, load_relations=True)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -108,17 +107,23 @@ async def complete_task(
     current_user: User = Depends(get_current_user),
     redis=Depends(get_redis),
 ):
-    """
-    THE critical endpoint — marks a task complete for the current period.
-    Uses Redis distributed lock + DB unique constraint to prevent duplicates.
-    """
     await _require_member(group_id, current_user, db)
     svc = TaskService(db=db, redis=redis)
-    return await svc.complete_task(
+    completion = await svc.complete_task(
         task_id=task_id,
         user_id=current_user.id,
         note=payload.note,
     )
+    # Reload with user relation so FastAPI can serialize it
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.models.models import TaskCompletion
+    result = await db.execute(
+        select(TaskCompletion)
+        .where(TaskCompletion.id == completion.id)
+        .options(selectinload(TaskCompletion.completed_by_user))
+    )
+    return result.scalar_one()
 
 
 @router.post("/{task_id}/reset", response_model=TaskRead)

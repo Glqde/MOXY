@@ -3,6 +3,7 @@ app/services/group_service.py
 Group management — create, invite, roles, remove members.
 """
 import secrets
+from tokenize import group
 import uuid
 from typing import List, Optional
 
@@ -25,6 +26,14 @@ class GroupService:
             .options(selectinload(Group.members).selectinload(GroupMember.user))
         )
         return result.scalar_one_or_none()
+    
+    async def delete(self, group_id: uuid.UUID) -> bool:
+        group = await self.get_by_id(group_id)
+        if not group:
+            return False
+        await self.db.delete(group)
+        await self.db.flush()
+        return True
 
     async def get_user_groups(self, user_id: uuid.UUID) -> List[Group]:
         result = await self.db.execute(

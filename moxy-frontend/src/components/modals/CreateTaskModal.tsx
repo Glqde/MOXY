@@ -1,6 +1,7 @@
 // src/components/modals/CreateTaskModal.tsx
-import { useState } from "react";
-import { Modal, C_FORM } from "@/components/ui/Modal";
+import { useState, useEffect } from "react";
+import { Modal, useFormStyles } from "@/components/ui/Modal";
+import { useColors } from "@/lib/theme";
 import { useCreateTask } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
 import type { Priority, RecurrenceType, TaskCreate } from "@/types";
@@ -21,8 +22,15 @@ interface Props {
 }
 
 export function CreateTaskModal({ groupId }: Props) {
+  const F = useFormStyles();
+  const C = useColors();
   const { toggleCreateTask } = useUIStore();
   const createTask = useCreateTask(groupId);
+
+  // Reset stuck mutation on mount (same fix as CreateGroupModal)
+  useEffect(() => {
+    createTask.reset();
+  }, []);
 
   const [form, setForm] = useState<{
     title: string; emoji: string; description: string;
@@ -83,11 +91,11 @@ export function CreateTaskModal({ groupId }: Props) {
       onClose={toggleCreateTask}
       footer={
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={toggleCreateTask} style={C_FORM.btn.ghost}>Cancel</button>
+          <button onClick={toggleCreateTask} style={F.btn.ghost}>Cancel</button>
           <button
             onClick={handleSubmit}
             disabled={createTask.isPending}
-            style={{ ...C_FORM.btn.primary, opacity: createTask.isPending ? 0.6 : 1 }}
+            style={{ ...F.btn.primary, opacity: createTask.isPending ? 0.6 : 1 }}
           >
             {createTask.isPending ? "Creating…" : "Create Task"}
           </button>
@@ -95,8 +103,8 @@ export function CreateTaskModal({ groupId }: Props) {
       }
     >
       {/* Emoji picker */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Icon</label>
+      <div style={F.group}>
+        <label style={F.label}>Icon</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {EMOJIS.map((e) => (
             <button
@@ -104,8 +112,8 @@ export function CreateTaskModal({ groupId }: Props) {
               onClick={() => setForm((f) => ({ ...f, emoji: e }))}
               style={{
                 width: 36, height: 36, borderRadius: 8, border: "1.5px solid",
-                borderColor: form.emoji === e ? "#7C6FFF" : "rgba(255,255,255,0.08)",
-                background: form.emoji === e ? "rgba(124,111,255,0.15)" : "#16161F",
+                borderColor: form.emoji === e ? C.accent : C.border,
+                background: form.emoji === e ? C.accentSoft : C.bgElevated,
                 fontSize: 18, cursor: "pointer", transition: "all 0.15s",
               }}
             >{e}</button>
@@ -114,80 +122,78 @@ export function CreateTaskModal({ groupId }: Props) {
       </div>
 
       {/* Title */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Title *</label>
+      <div style={F.group}>
+        <label style={F.label}>Title *</label>
         <input
           value={form.title} onChange={set("title")}
           placeholder="e.g. Feed the cat"
-          style={{ ...C_FORM.input, borderColor: errors.title ? "#EF4444" : "rgba(255,255,255,0.09)" }}
+          style={{ ...F.input, borderColor: errors.title ? C.red : C.border }}
         />
-        {errors.title && <div style={{ color: "#EF4444", fontSize: 11, marginTop: 4 }}>{errors.title}</div>}
+        {errors.title && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{errors.title}</div>}
       </div>
 
       {/* Description */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Description</label>
+      <div style={F.group}>
+        <label style={F.label}>Description</label>
         <textarea
           value={form.description} onChange={set("description")}
-          placeholder="Optional details…"
-          rows={2}
-          style={{ ...C_FORM.input, resize: "vertical", lineHeight: 1.5 }}
+          placeholder="Optional details…" rows={2}
+          style={{ ...F.input, resize: "vertical", lineHeight: 1.5 }}
         />
       </div>
 
       {/* Priority + Category */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
         <div>
-          <label style={C_FORM.label}>Priority</label>
-          <select value={form.priority} onChange={set("priority")} style={C_FORM.select}>
+          <label style={F.label}>Priority</label>
+          <select value={form.priority} onChange={set("priority")} style={F.select}>
             <option value="low">🟢 Low</option>
             <option value="medium">🟡 Medium</option>
             <option value="high">🔴 High</option>
           </select>
         </div>
         <div>
-          <label style={C_FORM.label}>Category</label>
-          <select value={form.category} onChange={set("category")} style={C_FORM.select}>
+          <label style={F.label}>Category</label>
+          <select value={form.category} onChange={set("category")} style={F.select}>
             {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
           </select>
         </div>
       </div>
 
       {/* Recurrence */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Recurrence</label>
+      <div style={F.group}>
+        <label style={F.label}>Recurrence</label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <select value={form.recurrenceType} onChange={set("recurrenceType")} style={C_FORM.select}>
+          <select value={form.recurrenceType} onChange={set("recurrenceType")} style={F.select}>
             {RECURRENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           {form.recurrenceType !== "custom" ? (
             <input
               type="number" min="1" max="999"
               value={form.intervalValue} onChange={set("intervalValue")}
-              placeholder="Interval"
-              style={C_FORM.input}
+              placeholder="Interval" style={F.input}
             />
           ) : (
             <input
               value={form.cronExpr} onChange={set("cronExpr")}
               placeholder="0 7,19 * * *"
-              style={{ ...C_FORM.input, borderColor: errors.cronExpr ? "#EF4444" : undefined }}
+              style={{ ...F.input, borderColor: errors.cronExpr ? C.red : C.border }}
             />
           )}
         </div>
-        {errors.cronExpr && <div style={{ color: "#EF4444", fontSize: 11, marginTop: 4 }}>{errors.cronExpr}</div>}
-        <div style={{ color: "rgba(240,240,255,0.3)", fontSize: 11, marginTop: 5 }}>
+        {errors.cronExpr && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{errors.cronExpr}</div>}
+        <div style={{ color: C.textSub, fontSize: 11, marginTop: 5 }}>
           Task resets automatically after each period. Any member can complete it once per period.
         </div>
       </div>
 
       {/* Tags */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Tags (comma separated)</label>
+      <div style={F.group}>
+        <label style={F.label}>Tags (comma separated)</label>
         <input
           value={form.tags} onChange={set("tags")}
           placeholder="chores, weekly, important"
-          style={C_FORM.input}
+          style={F.input}
         />
       </div>
     </Modal>

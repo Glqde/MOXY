@@ -2,16 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useGroups, useTasks } from "@/hooks/useQueries";
 import { useAuthStore } from "@/store";
+import { useColors } from "@/lib/theme";
 import type { TaskRead, GroupRead } from "@/types";
-
-const C = {
-  bgCard: "#111118", bgElevated: "#16161F",
-  border: "rgba(255,255,255,0.07)",
-  accent: "#7C6FFF", accentSoft: "rgba(124,111,255,0.12)",
-  green: "#22C55E", greenSoft: "rgba(34,197,94,0.1)",
-  amber: "#F59E0B",
-  text: "#F0F0FF", textMuted: "rgba(240,240,255,0.45)", textSub: "rgba(240,240,255,0.22)",
-};
 
 interface ActivityEntry {
   id: string;
@@ -39,12 +31,9 @@ function timeAgo(date: Date): string {
 }
 
 function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean }) {
-  const initials = entry.actorInitials;
+  const C = useColors();
   return (
-    <div style={{
-      display: "flex", gap: 14, position: "relative", paddingBottom: isLast ? 0 : 20,
-    }}>
-      {/* Timeline line */}
+    <div style={{ display: "flex", gap: 14, position: "relative", paddingBottom: isLast ? 0 : 20 }}>
       {!isLast && (
         <div style={{
           position: "absolute", left: 17, top: 38, bottom: 0,
@@ -52,7 +41,6 @@ function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean 
         }} />
       )}
 
-      {/* Avatar */}
       <div style={{
         width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
         background: `${entry.groupColor}22`,
@@ -60,9 +48,8 @@ function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean 
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 13, fontWeight: 600, color: entry.groupColor,
         zIndex: 1,
-      }}>{initials}</div>
+      }}>{entry.actorInitials}</div>
 
-      {/* Card */}
       <div style={{
         flex: 1, background: C.bgCard,
         border: `1px solid ${entry.isNew ? `${C.accent}40` : C.border}`,
@@ -79,9 +66,7 @@ function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean 
               <span style={{ color: C.accent, fontSize: 13 }}>{entry.taskTitle}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 13, color: C.textSub }}>
-                {entry.groupIcon} {entry.groupName}
-              </span>
+              <span style={{ fontSize: 13, color: C.textSub }}>{entry.groupIcon} {entry.groupName}</span>
               <span style={{ color: C.textSub, fontSize: 11 }}>·</span>
               <span style={{ color: C.textSub, fontSize: 11 }}>{timeAgo(entry.time)}</span>
             </div>
@@ -99,10 +84,8 @@ function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean 
   );
 }
 
-// ── Build synthetic activity from task completion data ──────────────────────
 function buildActivity(tasks: TaskRead[], group: GroupRead): ActivityEntry[] {
   const entries: ActivityEntry[] = [];
-
   tasks.forEach((t) => {
     if (t.latest_completion) {
       const c = t.latest_completion;
@@ -122,18 +105,15 @@ function buildActivity(tasks: TaskRead[], group: GroupRead): ActivityEntry[] {
       });
     }
   });
-
   return entries;
 }
 
 export function ActivityPage() {
+  const C = useColors();
   const { user } = useAuthStore();
   const { data: groups = [] } = useGroups();
-
-  // Collect tasks from all groups for a unified feed
   const [allActivity, setAllActivity] = useState<ActivityEntry[]>([]);
 
-  // We build activity from all group tasks (real activity_logs API would be cleaner)
   const { data: g1tasks = [] } = useTasks(groups[0]?.id ?? "");
   const { data: g2tasks = [] } = useTasks(groups[1]?.id ?? "");
   const { data: g3tasks = [] } = useTasks(groups[2]?.id ?? "");
@@ -150,7 +130,6 @@ export function ActivityPage() {
     setAllActivity(entries);
   }, [g1tasks, g2tasks, g3tasks, groups]);
 
-  // Filter state
   const [filter, setFilter] = useState<string>("all");
   const filterOptions = [
     { id: "all", label: "All" },
@@ -166,7 +145,6 @@ export function ActivityPage() {
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
-      {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>
           Activity
@@ -176,7 +154,6 @@ export function ActivityPage() {
         </p>
       </div>
 
-      {/* Filter pills */}
       {groups.length > 1 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           {filterOptions.map((f) => (
@@ -195,28 +172,17 @@ export function ActivityPage() {
         </div>
       )}
 
-      {/* Empty state */}
       {filtered.length === 0 && (
-        <div style={{
-          textAlign: "center", padding: "60px 20px",
-          color: C.textMuted,
-        }}>
+        <div style={{ textAlign: "center", padding: "60px 20px", color: C.textMuted }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>◎</div>
           <div style={{ color: C.text, fontSize: 15, marginBottom: 6 }}>No activity yet</div>
-          <div style={{ fontSize: 13 }}>
-            Activity will appear here when group members complete tasks
-          </div>
+          <div style={{ fontSize: 13 }}>Activity will appear here when group members complete tasks</div>
         </div>
       )}
 
-      {/* Feed */}
       <div style={{ display: "flex", flexDirection: "column" }}>
         {filtered.map((entry, i) => (
-          <ActivityRow
-            key={entry.id}
-            entry={entry}
-            isLast={i === filtered.length - 1}
-          />
+          <ActivityRow key={entry.id} entry={entry} isLast={i === filtered.length - 1} />
         ))}
       </div>
 

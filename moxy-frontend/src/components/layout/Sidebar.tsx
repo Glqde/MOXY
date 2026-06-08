@@ -3,38 +3,26 @@ import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadCount } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
+import { useColors } from "@/lib/theme";
 import { groupApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
 import type { GroupRead } from "@/types";
-
-const C = {
-  bgCard: "#111118",
-  border: "rgba(255,255,255,0.07)",
-  accent: "#7C6FFF",
-  accentSoft: "rgba(124,111,255,0.15)",
-  green: "#22C55E",
-  red: "#EF4444",
-  redSoft: "rgba(239,68,68,0.12)",
-  text: "#F0F0FF",
-  textMuted: "rgba(240,240,255,0.45)",
-  textSub: "rgba(240,240,255,0.22)",
-  bgElevated: "#16161F",
-};
 
 interface SidebarProps {
   groups: GroupRead[];
 }
 
 const NAV = [
-  { id: "dashboard" as const, label: "Dashboard",  icon: "⊞" },
-  { id: "analytics" as const, label: "Analytics",  icon: "◉" },
-  { id: "activity"  as const, label: "Activity",   icon: "◎" },
-  { id: "settings"  as const, label: "Settings",   icon: "⚙" },
+  { id: "dashboard" as const, label: "Dashboard", icon: "⊞" },
+  { id: "analytics" as const, label: "Analytics", icon: "◉" },
+  { id: "activity"  as const, label: "Activity",  icon: "◎" },
+  { id: "settings"  as const, label: "Settings",  icon: "⚙" },
 ];
 
 // ── Edit Group Modal ──────────────────────────────────────────────────────────
 function EditGroupModal({ group, onClose }: { group: GroupRead; onClose: () => void }) {
+  const C = useColors();
   const qc = useQueryClient();
   const [name, setName] = useState(group.name);
   const [description, setDescription] = useState(group.description ?? "");
@@ -60,7 +48,7 @@ function EditGroupModal({ group, onClose }: { group: GroupRead; onClose: () => v
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
     }} onClick={onClose}>
       <div style={{
-        background: "#111118", border: `1px solid rgba(255,255,255,0.1)`,
+        background: C.bgCard, border: `1px solid ${C.border}`,
         borderRadius: 16, padding: 24, width: 400, maxWidth: "90vw",
       }} onClick={e => e.stopPropagation()}>
         <div style={{ color: C.text, fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Edit Group</div>
@@ -71,7 +59,7 @@ function EditGroupModal({ group, onClose }: { group: GroupRead; onClose: () => v
             value={name}
             onChange={e => setName(e.target.value)}
             style={{
-              width: "100%", background: C.bgElevated, border: `1px solid rgba(255,255,255,0.09)`,
+              width: "100%", background: C.bgElevated, border: `1px solid ${C.border}`,
               borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 14,
               outline: "none", boxSizing: "border-box",
             }}
@@ -85,7 +73,7 @@ function EditGroupModal({ group, onClose }: { group: GroupRead; onClose: () => v
             onChange={e => setDescription(e.target.value)}
             placeholder="Optional description"
             style={{
-              width: "100%", background: C.bgElevated, border: `1px solid rgba(255,255,255,0.09)`,
+              width: "100%", background: C.bgElevated, border: `1px solid ${C.border}`,
               borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 14,
               outline: "none", boxSizing: "border-box",
             }}
@@ -94,7 +82,7 @@ function EditGroupModal({ group, onClose }: { group: GroupRead; onClose: () => v
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{
-            background: "none", border: `1px solid rgba(255,255,255,0.1)`,
+            background: "none", border: `1px solid ${C.border}`,
             borderRadius: 8, padding: "8px 16px", color: C.textMuted, cursor: "pointer", fontSize: 13,
           }}>Cancel</button>
           <button onClick={handleSave} disabled={saving || !name.trim()} style={{
@@ -115,6 +103,7 @@ function GroupMenu({ group, onEdit, onDelete }: {
   onEdit: (g: GroupRead) => void;
   onDelete: (id: string) => void;
 }) {
+  const C = useColors();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -140,7 +129,7 @@ function GroupMenu({ group, onEdit, onDelete }: {
       {open && (
         <div style={{
           position: "absolute", right: 0, top: "110%", zIndex: 100,
-          background: "#1A1A25", border: `1px solid rgba(255,255,255,0.1)`,
+          background: C.bgElevated, border: `1px solid ${C.border}`,
           borderRadius: 10, padding: 4, minWidth: 120,
           boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
         }}>
@@ -152,7 +141,7 @@ function GroupMenu({ group, onEdit, onDelete }: {
               border: "none", borderRadius: 7, cursor: "pointer",
               color: C.text, fontSize: 12, textAlign: "left",
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = C.bgElevated)}
+            onMouseEnter={e => (e.currentTarget.style.background = C.bgCard)}
             onMouseLeave={e => (e.currentTarget.style.background = "none")}
           >✏️ Edit</button>
           <button
@@ -172,7 +161,9 @@ function GroupMenu({ group, onEdit, onDelete }: {
   );
 }
 
+// ── Sidebar ───────────────────────────────────────────────────────────────────
 export function Sidebar({ groups }: SidebarProps) {
+  const C = useColors();
   const { user, signOut } = useAuth();
   const { activeGroupId, activePage, setActiveGroup, setActivePage, toggleCreateGroup, toggleInviteMembers } = useUIStore();
   const { data: unreadCount = 0 } = useUnreadCount();
@@ -185,21 +176,21 @@ export function Sidebar({ groups }: SidebarProps) {
     .split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() ?? "?";
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!confirm("Delete this group? All tasks will be lost.")) return;
-    try {
-      await groupApi.update(groupId, { is_private: false }); // soft approach — or add delete endpoint
-      qc.invalidateQueries({ queryKey: QK.groups });
-    } catch {
-      alert("Failed to delete group");
-    }
-  };
+  if (!confirm("Delete this group? All tasks will be lost.")) return;
+  try {
+    await groupApi.delete(groupId);
+    qc.invalidateQueries({ queryKey: QK.groups });
+  } catch {
+    alert("Failed to delete group");
+  }
+  };  
 
   return (
     <div style={{
       width: 220, flexShrink: 0, background: C.bgCard,
       borderRight: `1px solid ${C.border}`,
       display: "flex", flexDirection: "column", height: "100%",
-      userSelect: "none",
+      userSelect: "none", transition: "background 0.2s, border-color 0.2s",
     }}>
       {editingGroup && (
         <EditGroupModal group={editingGroup} onClose={() => setEditingGroup(null)} />
@@ -288,19 +279,14 @@ export function Sidebar({ groups }: SidebarProps) {
                 }}>{g.name}</span>
                 <span style={{
                   fontSize: 10, color: C.textSub,
-                  background: "rgba(255,255,255,0.05)",
+                  background: C.border,
                   padding: "1px 5px", borderRadius: 6,
                 }}>{g.member_count}</span>
               </button>
 
-              {/* ⋯ menu on hover */}
               {isHovered && (
                 <div style={{ position: "absolute", right: 4 }}>
-                  <GroupMenu
-                    group={g}
-                    onEdit={setEditingGroup}
-                    onDelete={handleDeleteGroup}
-                  />
+                  <GroupMenu group={g} onEdit={setEditingGroup} onDelete={handleDeleteGroup} />
                 </div>
               )}
             </div>
@@ -327,7 +313,7 @@ export function Sidebar({ groups }: SidebarProps) {
         {showUserMenu && (
           <div style={{
             position: "absolute", bottom: 60, left: 14, right: 14,
-            background: "#1C1C28", border: `1px solid ${C.border}`,
+            background: C.bgElevated, border: `1px solid ${C.border}`,
             borderRadius: 10, overflow: "hidden", zIndex: 50,
             boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
           }}>
@@ -344,7 +330,7 @@ export function Sidebar({ groups }: SidebarProps) {
               onClick={() => { signOut(); setShowUserMenu(false); }}
               style={{
                 width: "100%", padding: "10px 14px", border: "none",
-                background: "transparent", color: "#EF4444", fontSize: 13,
+                background: "transparent", color: C.red, fontSize: 13,
                 cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: 8,
               }}
             >↪ Sign out</button>

@@ -1,13 +1,7 @@
 // src/components/notifications/NotifPanel.tsx
 import { useNotifications, useMarkRead, useMarkAllRead } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
-
-const C = {
-  bgCard: "#111118", bgElevated: "#16161F",
-  border: "rgba(255,255,255,0.07)", accent: "#7C6FFF",
-  accentSoft: "rgba(124,111,255,0.15)", accentGlow: "rgba(124,111,255,0.3)",
-  text: "#F0F0FF", textMuted: "rgba(240,240,255,0.45)", textSub: "rgba(240,240,255,0.22)",
-};
+import { useColors } from "@/lib/theme";
 
 const typeEmoji: Record<string, string> = {
   task_completed: "✅", task_reminder: "⏰", task_overdue: "🚨",
@@ -16,6 +10,7 @@ const typeEmoji: Record<string, string> = {
 };
 
 export function NotifPanel() {
+  const C = useColors();
   const { closeNotifPanel } = useUIStore();
   const { data: notifications = [], isLoading } = useNotifications();
   const markRead = useMarkRead();
@@ -30,8 +25,8 @@ export function NotifPanel() {
       position: "absolute", top: 0, right: 0, bottom: 0, width: 320,
       background: C.bgCard, borderLeft: `1px solid ${C.border}`,
       zIndex: 100, display: "flex", flexDirection: "column",
+      transition: "background 0.2s, border-color 0.2s",
     }}>
-      {/* Header */}
       <div style={{
         padding: "18px 20px 14px",
         borderBottom: `1px solid ${C.border}`,
@@ -43,7 +38,6 @@ export function NotifPanel() {
         }}>×</button>
       </div>
 
-      {/* List */}
       <div style={{ flex: 1, overflowY: "auto", padding: "10px" }}>
         {isLoading && (
           <div style={{ padding: 20, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
@@ -61,7 +55,7 @@ export function NotifPanel() {
             style={{
               padding: "12px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
               background: n.is_read ? "transparent" : C.accentSoft,
-              border: `1px solid ${n.is_read ? "transparent" : C.accentGlow}`,
+              border: `1px solid ${n.is_read ? "transparent" : `${C.accent}40`}`,
               transition: "all 0.2s",
             }}
           >
@@ -94,7 +88,6 @@ export function NotifPanel() {
         ))}
       </div>
 
-      {/* Footer */}
       <div style={{ padding: "10px", borderTop: `1px solid ${C.border}` }}>
         <button
           onClick={() => markAllRead.mutate()}

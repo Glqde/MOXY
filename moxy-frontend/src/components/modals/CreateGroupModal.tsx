@@ -1,6 +1,7 @@
 // src/components/modals/CreateGroupModal.tsx
 import { useState, useEffect } from "react";
-import { Modal, C_FORM } from "@/components/ui/Modal";
+import { Modal, useFormStyles } from "@/components/ui/Modal";
+import { useColors } from "@/lib/theme";
 import { useCreateGroup } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
 
@@ -8,6 +9,8 @@ const ICONS  = ["🏠","👨‍👩‍👧‍👦","🏢","📚","🏕️","🎮
 const COLORS = ["#7C6FFF","#22C55E","#F59E0B","#EF4444","#3B82F6","#EC4899","#14B8A6","#F97316","#8B5CF6","#06B6D4"];
 
 export function CreateGroupModal() {
+  const F = useFormStyles();
+  const C = useColors();
   const { toggleCreateGroup } = useUIStore();
   const createGroup = useCreateGroup();
 
@@ -42,11 +45,11 @@ export function CreateGroupModal() {
       onClose={toggleCreateGroup}
       footer={
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={toggleCreateGroup} style={C_FORM.btn.ghost}>Cancel</button>
+          <button onClick={toggleCreateGroup} style={F.btn.ghost}>Cancel</button>
           <button
             onClick={handleSubmit}
             disabled={createGroup.isPending}
-            style={{ ...C_FORM.btn.primary, background: form.color, opacity: createGroup.isPending ? 0.7 : 1 }}
+            style={{ ...F.btn.primary, background: form.color, opacity: createGroup.isPending ? 0.7 : 1 }}
           >
             {createGroup.isPending ? "Creating…" : "Create Group"}
           </button>
@@ -65,25 +68,25 @@ export function CreateGroupModal() {
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22,
         }}>{form.icon}</div>
         <div>
-          <div style={{ color: "#F0F0FF", fontSize: 15, fontWeight: 600 }}>
+          <div style={{ color: C.text, fontSize: 15, fontWeight: 600 }}>
             {form.name || "Group name"}
           </div>
-          <div style={{ color: "rgba(240,240,255,0.4)", fontSize: 12 }}>
+          <div style={{ color: C.textMuted, fontSize: 12 }}>
             {form.description || "No description"}
           </div>
         </div>
       </div>
 
       {/* Icon */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Icon</label>
+      <div style={F.group}>
+        <label style={F.label}>Icon</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {ICONS.map((ic) => (
             <button key={ic} onClick={() => setForm((f) => ({ ...f, icon: ic }))}
               style={{
                 width: 38, height: 38, borderRadius: 9, border: "1.5px solid",
-                borderColor: form.icon === ic ? form.color : "rgba(255,255,255,0.08)",
-                background: form.icon === ic ? `${form.color}20` : "#16161F",
+                borderColor: form.icon === ic ? form.color : C.border,
+                background: form.icon === ic ? `${form.color}20` : C.bgElevated,
                 fontSize: 18, cursor: "pointer", transition: "all 0.15s",
               }}
             >{ic}</button>
@@ -92,14 +95,14 @@ export function CreateGroupModal() {
       </div>
 
       {/* Color */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Color</label>
+      <div style={F.group}>
+        <label style={F.label}>Color</label>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {COLORS.map((col) => (
             <button key={col} onClick={() => setForm((f) => ({ ...f, color: col }))}
               style={{
                 width: 28, height: 28, borderRadius: "50%", border: "2.5px solid",
-                borderColor: form.color === col ? "#fff" : "transparent",
+                borderColor: form.color === col ? C.text : "transparent",
                 background: col, cursor: "pointer", transition: "border-color 0.15s",
                 outline: form.color === col ? `2px solid ${col}` : "none",
                 outlineOffset: 2,
@@ -110,33 +113,33 @@ export function CreateGroupModal() {
       </div>
 
       {/* Name */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Name *</label>
+      <div style={F.group}>
+        <label style={F.label}>Name *</label>
         <input
           value={form.name}
           onChange={(e) => { setForm((f) => ({ ...f, name: e.target.value })); setError(""); }}
           placeholder="e.g. Westbrook Flat"
-          style={{ ...C_FORM.input, borderColor: error ? "#EF4444" : "rgba(255,255,255,0.09)" }}
+          style={{ ...F.input, borderColor: error ? C.red : C.border }}
         />
-        {error && <div style={{ color: "#EF4444", fontSize: 11, marginTop: 4 }}>{error}</div>}
+        {error && <div style={{ color: C.red, fontSize: 11, marginTop: 4 }}>{error}</div>}
       </div>
 
       {/* Description */}
-      <div style={C_FORM.group}>
-        <label style={C_FORM.label}>Description</label>
+      <div style={F.group}>
+        <label style={F.label}>Description</label>
         <input
           value={form.description}
           onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           placeholder="Optional description"
-          style={C_FORM.input}
+          style={F.input}
         />
       </div>
 
       {/* Private toggle */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ color: "#F0F0FF", fontSize: 13 }}>Private group</div>
-          <div style={{ color: "rgba(240,240,255,0.4)", fontSize: 11, marginTop: 2 }}>
+          <div style={{ color: C.text, fontSize: 13 }}>Private group</div>
+          <div style={{ color: C.textMuted, fontSize: 11, marginTop: 2 }}>
             Members can only join via invite link
           </div>
         </div>
@@ -144,7 +147,7 @@ export function CreateGroupModal() {
           onClick={() => setForm((f) => ({ ...f, is_private: !f.is_private }))}
           style={{
             width: 42, height: 24, borderRadius: 12, border: "none",
-            background: form.is_private ? form.color : "rgba(255,255,255,0.12)",
+            background: form.is_private ? form.color : C.border,
             cursor: "pointer", transition: "background 0.2s",
             position: "relative",
           }}

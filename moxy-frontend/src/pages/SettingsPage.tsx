@@ -3,19 +3,10 @@ import { useState, useRef } from "react";
 import { useMe, useUpdateMe, useGroups, useGroupMembers } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
 import { useAuth } from "@/hooks/useAuth";
+import { useColors } from "@/lib/theme";
+import type { ColorPalette } from "@/lib/theme";
 
-const C = {
-  bgCard: "#111118", bgElevated: "#16161F",
-  border: "rgba(255,255,255,0.07)", borderHover: "rgba(255,255,255,0.12)",
-  accent: "#7C6FFF", accentSoft: "rgba(124,111,255,0.12)",
-  green: "#22C55E", greenSoft: "rgba(34,197,94,0.1)",
-  amber: "#F59E0B", amberSoft: "rgba(245,158,11,0.1)",
-  red: "#EF4444", redSoft: "rgba(239,68,68,0.1)",
-  text: "#F0F0FF", textMuted: "rgba(240,240,255,0.45)", textSub: "rgba(240,240,255,0.22)",
-};
-
-// ── Shared primitives ─────────────────────────────────────────────────────────
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, C }: { title: string; children: React.ReactNode; C: ColorPalette }) {
   return (
     <div style={{ marginBottom: 28 }}>
       <div style={{ color: C.textSub, fontSize: 10, letterSpacing: "1.4px", textTransform: "uppercase", marginBottom: 12 }}>
@@ -24,6 +15,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div style={{
         background: C.bgCard, border: `1px solid ${C.border}`,
         borderRadius: 14, overflow: "hidden",
+        transition: "background 0.2s, border-color 0.2s",
       }}>
         {children}
       </div>
@@ -31,9 +23,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Row({ label, sub, children, first, last }: {
-  label: string; sub?: string; children?: React.ReactNode;
-  first?: boolean; last?: boolean;
+function Row({ label, sub, children, first, C }: {
+  label: string; sub?: string; children?: React.ReactNode; first?: boolean; C: ColorPalette;
 }) {
   return (
     <div style={{
@@ -50,15 +41,16 @@ function Row({ label, sub, children, first, last }: {
   );
 }
 
-function Toggle({ value, onChange, color = C.accent }: {
-  value: boolean; onChange: (v: boolean) => void; color?: string;
+function Toggle({ value, onChange, color, C }: {
+  value: boolean; onChange: (v: boolean) => void; color?: string; C: ColorPalette;
 }) {
+  const activeColor = color ?? C.accent;
   return (
     <button
       onClick={() => onChange(!value)}
       style={{
         width: 44, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
-        background: value ? color : "rgba(255,255,255,0.12)",
+        background: value ? activeColor : C.border,
         position: "relative", transition: "background 0.2s", flexShrink: 0,
       }}
     >
@@ -73,8 +65,8 @@ function Toggle({ value, onChange, color = C.accent }: {
   );
 }
 
-function EditableField({ label, value, onSave, placeholder }: {
-  label: string; value: string; onSave: (v: string) => Promise<void>; placeholder?: string;
+function EditableField({ label, value, onSave, placeholder, C }: {
+  label: string; value: string; onSave: (v: string) => Promise<void>; placeholder?: string; C: ColorPalette;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -87,7 +79,7 @@ function EditableField({ label, value, onSave, placeholder }: {
     if (draft.trim() === value) { cancel(); return; }
     setSaving(true);
     try { await onSave(draft.trim()); setEditing(false); }
-    catch { /* toast handled by mutation */ }
+    catch {}
     finally { setSaving(false); }
   };
 
@@ -96,8 +88,7 @@ function EditableField({ label, value, onSave, placeholder }: {
       {editing ? (
         <>
           <input
-            ref={inputRef}
-            value={draft}
+            ref={inputRef} value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
             style={{
@@ -133,10 +124,9 @@ function EditableField({ label, value, onSave, placeholder }: {
   );
 }
 
-// ── Theme selector ────────────────────────────────────────────────────────────
-function ThemeSelector({ current, onChange }: { current: string; onChange: (t: string) => void }) {
+function ThemeSelector({ current, onChange, C }: { current: string; onChange: (t: string) => void; C: ColorPalette }) {
   const themes = [
-    { id: "dark", label: "Dark", icon: "🌙" },
+    { id: "dark",  label: "Dark",  icon: "🌙" },
     { id: "light", label: "Light", icon: "☀️" },
   ];
   return (
@@ -159,18 +149,14 @@ function ThemeSelector({ current, onChange }: { current: string; onChange: (t: s
   );
 }
 
-// ── Group member manager ──────────────────────────────────────────────────────
-function GroupMembersSection({ groupId, groupName, groupColor }: {
-  groupId: string; groupName: string; groupColor: string;
+function GroupMembersSection({ groupId, groupName, groupColor, C }: {
+  groupId: string; groupName: string; groupColor: string; C: ColorPalette;
 }) {
   const { data: members = [] } = useGroupMembers(groupId);
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div style={{
-      border: `1px solid ${C.border}`, borderRadius: 12,
-      marginBottom: 10, overflow: "hidden",
-    }}>
+    <div style={{ border: `1px solid ${C.border}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
       <button
         onClick={() => setExpanded((v) => !v)}
         style={{
@@ -180,12 +166,10 @@ function GroupMembersSection({ groupId, groupName, groupColor }: {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: "50%", background: groupColor,
-          }} />
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: groupColor }} />
           <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{groupName}</span>
           <span style={{
-            background: "rgba(255,255,255,0.06)", borderRadius: 6,
+            background: C.bgElevated, borderRadius: 6,
             padding: "1px 7px", color: C.textSub, fontSize: 11,
           }}>{members.length}</span>
         </div>
@@ -214,7 +198,7 @@ function GroupMembersSection({ groupId, groupName, groupColor }: {
               </div>
               <span style={{
                 fontSize: 11, padding: "2px 8px", borderRadius: 6,
-                background: m.role === "admin" ? C.accentSoft : "rgba(255,255,255,0.05)",
+                background: m.role === "admin" ? C.accentSoft : C.bgElevated,
                 color: m.role === "admin" ? C.accent : C.textSub,
                 border: `1px solid ${m.role === "admin" ? `${C.accent}40` : C.border}`,
               }}>{m.role}</span>
@@ -226,15 +210,14 @@ function GroupMembersSection({ groupId, groupName, groupColor }: {
   );
 }
 
-// ── Main settings page ────────────────────────────────────────────────────────
 export function SettingsPage() {
   const { data: me } = useMe();
   const updateMe = useUpdateMe();
   const { data: groups = [] } = useGroups();
   const { signOut } = useAuth();
   const { theme, setTheme } = useUIStore();
+  const C = useColors();
 
-  // Local prefs state (would persist via UserSettings API in production)
   const [prefs, setPrefs] = useState({
     emailNotifications: true,
     pushNotifications: true,
@@ -251,8 +234,7 @@ export function SettingsPage() {
   const initials = me.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px", maxWidth: 640 }}>
-      {/* Header */}
+    <div style={{ flex: 1, overflowY: "auto", padding: "24px", maxWidth: 640, background: C.bgBase, transition: "background 0.2s" }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>
           Settings
@@ -262,9 +244,7 @@ export function SettingsPage() {
         </p>
       </div>
 
-      {/* ── Profile ─────────────────────────────────────────────────────────── */}
-      <Section title="Profile">
-        {/* Avatar + name */}
+      <Section title="Profile" C={C}>
         <div style={{ padding: "18px 18px 14px", display: "flex", alignItems: "center", gap: 16 }}>
           {me.avatar_url ? (
             <img src={me.avatar_url} alt="" style={{ width: 56, height: 56, borderRadius: "50%", objectFit: "cover" }} />
@@ -279,102 +259,75 @@ export function SettingsPage() {
           <div>
             <div style={{ color: C.text, fontSize: 16, fontWeight: 600 }}>{me.full_name}</div>
             <div style={{ color: C.textMuted, fontSize: 13 }}>{me.email}</div>
-            <div style={{ color: C.green, fontSize: 11, marginTop: 3 }}>
-              ● Google account · verified
-            </div>
+            <div style={{ color: C.green, fontSize: 11, marginTop: 3 }}>● Google account · verified</div>
           </div>
         </div>
-
-        <Row first label="Display name" sub="Shown to other members">
-          <EditableField
-            label="name"
-            value={me.full_name}
-            placeholder="Your name"
-            onSave={async (v) => { await updateMe.mutateAsync({ full_name: v }); }}
-          />
+        <Row first label="Display name" sub="Shown to other members" C={C}>
+          <EditableField label="name" value={me.full_name} placeholder="Your name" C={C}
+            onSave={async (v) => { await updateMe.mutateAsync({ full_name: v }); }} />
         </Row>
-
-        <Row label="Username" sub="Used in search and mentions">
-          <EditableField
-            label="username"
-            value={me.username ?? ""}
-            placeholder="Set a username"
-            onSave={async (v) => { await updateMe.mutateAsync({ username: v }); }}
-          />
+        <Row label="Username" sub="Used in search and mentions" C={C}>
+          <EditableField label="username" value={me.username ?? ""} placeholder="Set a username" C={C}
+            onSave={async (v) => { await updateMe.mutateAsync({ username: v }); }} />
         </Row>
-
-        <Row last label="Email" sub="From your Google account">
+        <Row label="Email" sub="From your Google account" C={C}>
           <span style={{ color: C.textMuted, fontSize: 13 }}>{me.email}</span>
         </Row>
       </Section>
 
-      {/* ── Appearance ──────────────────────────────────────────────────────── */}
-      <Section title="Appearance">
-        <Row first last label="Theme" sub="Choose your preferred color scheme">
-          <ThemeSelector current={theme} onChange={setTheme} />
+      <Section title="Appearance" C={C}>
+        <Row first label="Theme" sub="Choose your preferred color scheme" C={C}>
+          <ThemeSelector current={theme} onChange={setTheme} C={C} />
         </Row>
       </Section>
 
-      {/* ── Notifications ───────────────────────────────────────────────────── */}
-      <Section title="Notifications">
-        <Row first label="Email notifications" sub="Receive task reminders by email">
-          <Toggle value={prefs.emailNotifications} onChange={setPref("emailNotifications")} />
+      <Section title="Notifications" C={C}>
+        <Row first label="Email notifications" sub="Receive task reminders by email" C={C}>
+          <Toggle value={prefs.emailNotifications} onChange={setPref("emailNotifications")} C={C} />
         </Row>
-        <Row label="Push notifications" sub="Browser and mobile push alerts">
-          <Toggle value={prefs.pushNotifications} onChange={setPref("pushNotifications")} />
+        <Row label="Push notifications" sub="Browser and mobile push alerts" C={C}>
+          <Toggle value={prefs.pushNotifications} onChange={setPref("pushNotifications")} C={C} />
         </Row>
-        <Row label="Sound alerts" sub="Play a sound when tasks are completed">
-          <Toggle value={prefs.soundEnabled} onChange={setPref("soundEnabled")} />
+        <Row label="Sound alerts" sub="Play a sound when tasks are completed" C={C}>
+          <Toggle value={prefs.soundEnabled} onChange={setPref("soundEnabled")} C={C} />
         </Row>
-        <Row last label="Vacation mode" sub="Pause all reminders temporarily">
-          <Toggle value={prefs.vacationMode} onChange={setPref("vacationMode")} color={C.amber} />
+        <Row label="Vacation mode" sub="Pause all reminders temporarily" C={C}>
+          <Toggle value={prefs.vacationMode} onChange={setPref("vacationMode")} color={C.amber} C={C} />
         </Row>
       </Section>
 
-      {/* ── Groups & Members ────────────────────────────────────────────────── */}
       {groups.length > 0 && (
-        <Section title="Your Groups">
+        <Section title="Your Groups" C={C}>
           <div style={{ padding: "14px 18px" }}>
             {groups.map((g) => (
-              <GroupMembersSection
-                key={g.id}
-                groupId={g.id}
-                groupName={g.name}
-                groupColor={g.color}
-              />
+              <GroupMembersSection key={g.id} groupId={g.id} groupName={g.name} groupColor={g.color} C={C} />
             ))}
           </div>
         </Section>
       )}
 
-      {/* ── Account info ────────────────────────────────────────────────────── */}
-      <Section title="Account">
-        <Row first label="Member since" sub="Account creation date">
+      <Section title="Account" C={C}>
+        <Row first label="Member since" sub="Account creation date" C={C}>
           <span style={{ color: C.textMuted, fontSize: 13 }}>
             {new Date(me.created_at).toLocaleDateString([], { month: "long", year: "numeric" })}
           </span>
         </Row>
-        <Row label="Account status" sub="Your subscription plan">
+        <Row label="Account status" sub="Your subscription plan" C={C}>
           <span style={{
             background: C.accentSoft, color: C.accent,
             border: `1px solid ${C.accent}40`,
             borderRadius: 6, padding: "3px 9px", fontSize: 11, fontWeight: 500,
           }}>Free plan</span>
         </Row>
-        <Row last label="Sign out" sub="Sign out of all devices">
-          <button
-            onClick={signOut}
-            style={{
-              padding: "7px 14px", borderRadius: 9,
-              border: `1px solid ${C.border}`,
-              background: "transparent", color: C.textMuted,
-              fontSize: 12, cursor: "pointer",
-            }}
-          >Sign out</button>
+        <Row label="Sign out" sub="Sign out of all devices" C={C}>
+          <button onClick={signOut} style={{
+            padding: "7px 14px", borderRadius: 9,
+            border: `1px solid ${C.border}`, background: "transparent",
+            color: C.textMuted, fontSize: 12, cursor: "pointer",
+          }}>Sign out</button>
         </Row>
       </Section>
 
-      {/* ── Danger zone ─────────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 40 }}>
         <div style={{ color: C.textSub, fontSize: 10, letterSpacing: "1.4px", textTransform: "uppercase", marginBottom: 12 }}>
           Danger Zone
@@ -390,33 +343,26 @@ export function SettingsPage() {
                 Permanently delete your account and all data. This cannot be undone.
               </div>
             </div>
-            <button
-              onClick={() => setShowDanger((v) => !v)}
-              style={{
-                padding: "7px 14px", borderRadius: 9, cursor: "pointer",
-                border: `1px solid ${C.red}50`,
-                background: showDanger ? C.redSoft : "transparent",
-                color: C.red, fontSize: 12, flexShrink: 0,
-              }}
-            >{showDanger ? "Cancel" : "Delete account"}</button>
+            <button onClick={() => setShowDanger((v) => !v)} style={{
+              padding: "7px 14px", borderRadius: 9, cursor: "pointer",
+              border: `1px solid ${C.red}50`,
+              background: showDanger ? C.redSoft : "transparent",
+              color: C.red, fontSize: 12, flexShrink: 0,
+            }}>{showDanger ? "Cancel" : "Delete account"}</button>
           </div>
-
           {showDanger && (
             <div style={{
               marginTop: 14, padding: "14px", borderRadius: 10,
               background: C.redSoft, border: `1px solid ${C.red}30`,
             }}>
               <p style={{ color: C.red, fontSize: 13, margin: "0 0 12px" }}>
-                ⚠️ This will permanently delete your account, remove you from all groups, and erase all your data. There is no recovery.
+                ⚠️ This will permanently delete your account, remove you from all groups, and erase all your data.
               </p>
-              <button
-                onClick={signOut} // in production: call DELETE /users/me then sign out
-                style={{
-                  padding: "8px 16px", borderRadius: 9, cursor: "pointer",
-                  border: "none", background: C.red, color: "#fff",
-                  fontSize: 13, fontWeight: 500,
-                }}
-              >Yes, permanently delete my account</button>
+              <button onClick={signOut} style={{
+                padding: "8px 16px", borderRadius: 9, cursor: "pointer",
+                border: "none", background: C.red, color: "#fff",
+                fontSize: 13, fontWeight: 500,
+              }}>Yes, permanently delete my account</button>
             </div>
           )}
         </div>

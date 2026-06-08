@@ -2,6 +2,7 @@
 import { useGroups } from "@/hooks/useQueries";
 import { useSocket } from "@/hooks/useSocket";
 import { useAuthStore, useUIStore } from "@/store";
+import { useColors } from "@/lib/theme";
 import { Sidebar } from "./Sidebar";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AnalyticsPage } from "@/pages/AnalyticsPage";
@@ -20,6 +21,8 @@ export function AppShell() {
     toggleInviteMembers,
   } = useUIStore();
 
+  const C = useColors();
+
   const { data: groups = [] } = useGroups();
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const groupIds = groups.map((g) => g.id);
@@ -31,9 +34,10 @@ export function AppShell() {
 
   return (
     <div style={{
-      display: "flex", height: "100vh", background: "#0A0A0F",
+      display: "flex", height: "100vh", background: C.bgBase,
       fontFamily: "'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      overflow: "hidden", position: "relative", color: "#F0F0FF",
+      overflow: "hidden", position: "relative", color: C.text,
+      transition: "background 0.2s, color 0.2s",
     }}>
       {import.meta.env.DEV && (
         <div style={{
@@ -47,7 +51,7 @@ export function AppShell() {
 
       <Sidebar groups={groups} />
 
-      <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden", background: C.bgBase, transition: "background 0.2s" }}>
         {activePage === "dashboard" && <DashboardPage />}
         {activePage === "analytics" && <AnalyticsPage />}
         {activePage === "activity"  && <ActivityPage />}
@@ -55,7 +59,6 @@ export function AppShell() {
         {showNotifPanel && <NotifPanel />}
       </div>
 
-      {/* Modals — portaled to document.body */}
       {showCreateTask && activeGroupId && <CreateTaskModal groupId={activeGroupId} />}
       {showCreateGroup && <CreateGroupModal />}
       {showInviteMembers && activeGroup && (

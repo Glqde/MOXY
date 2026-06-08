@@ -5,32 +5,27 @@ import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUnreadCount, 
 import { taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
+import { useColors } from "@/lib/theme";
 import type { TaskRead } from "@/types";
 
-const C = {
-  bg: "#0A0A0F", bgCard: "#111118", bgElevated: "#16161F",
-  border: "rgba(255,255,255,0.07)", borderGreen: "rgba(34,197,94,0.25)",
-  accent: "#7C6FFF", accentSoft: "rgba(124,111,255,0.15)",
-  green: "#22C55E", greenSoft: "rgba(34,197,94,0.12)",
-  amber: "#F59E0B", amberSoft: "rgba(245,158,11,0.12)",
-  red: "#EF4444", redSoft: "rgba(239,68,68,0.12)",
-  text: "#F0F0FF", textMuted: "rgba(240,240,255,0.45)", textSub: "rgba(240,240,255,0.22)",
-};
+const priorityColor = (p: string, C: { red: string; amber: string; green: string }) =>
+  p === "high" ? C.red : p === "medium" ? C.amber : C.green;
+const priorityBg = (p: string, C: { redSoft: string; amberSoft: string; greenSoft: string }) =>
+  p === "high" ? C.redSoft : p === "medium" ? C.amberSoft : C.greenSoft;
 
-const priorityColor = (p: string) => p === "high" ? C.red : p === "medium" ? C.amber : C.green;
-const priorityBg    = (p: string) => p === "high" ? C.redSoft : p === "medium" ? C.amberSoft : C.greenSoft;
-
-function Avatar({ letters, size = 32, color = C.accent, online }: {
+function Avatar({ letters, size = 32, color, online }: {
   letters: string; size?: number; color?: string; online?: boolean;
 }) {
+  const C = useColors();
+  const resolvedColor = color ?? C.accent;
   const initials = letters.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
       <div style={{
         width: size, height: size, borderRadius: "50%",
-        background: `${color}22`, border: `1.5px solid ${color}44`,
+        background: `${resolvedColor}22`, border: `1.5px solid ${resolvedColor}44`,
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: size * 0.36, fontWeight: 600, color,
+        fontSize: size * 0.36, fontWeight: 600, color: resolvedColor,
         letterSpacing: "0.3px",
       }}>{initials}</div>
       {online !== undefined && (
@@ -51,6 +46,7 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
   onEdit: (task: TaskRead) => void;
   onDelete: (taskId: string) => void;
 }) {
+  const C = useColors();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -69,8 +65,7 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
         style={{
           background: "none", border: "none", cursor: "pointer",
           color: C.textMuted, fontSize: 18, padding: "2px 6px",
-          borderRadius: 6, lineHeight: 1,
-          transition: "background 0.15s",
+          borderRadius: 6, lineHeight: 1, transition: "background 0.15s",
         }}
         onMouseEnter={e => (e.currentTarget.style.background = C.bgElevated)}
         onMouseLeave={e => (e.currentTarget.style.background = "none")}
@@ -79,7 +74,7 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
       {open && (
         <div style={{
           position: "absolute", right: 0, top: "110%", zIndex: 100,
-          background: "#1A1A25", border: `1px solid rgba(255,255,255,0.1)`,
+          background: C.bgElevated, border: `1px solid ${C.border}`,
           borderRadius: 10, padding: 4, minWidth: 130,
           boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
         }}>
@@ -89,10 +84,9 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
               display: "flex", alignItems: "center", gap: 8,
               width: "100%", padding: "8px 12px", background: "none",
               border: "none", borderRadius: 7, cursor: "pointer",
-              color: C.text, fontSize: 13, textAlign: "left",
-              transition: "background 0.15s",
+              color: C.text, fontSize: 13, textAlign: "left", transition: "background 0.15s",
             }}
-            onMouseEnter={e => (e.currentTarget.style.background = C.bgElevated)}
+            onMouseEnter={e => (e.currentTarget.style.background = C.bgCard)}
             onMouseLeave={e => (e.currentTarget.style.background = "none")}
           >✏️ Edit</button>
           <button
@@ -101,8 +95,7 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
               display: "flex", alignItems: "center", gap: 8,
               width: "100%", padding: "8px 12px", background: "none",
               border: "none", borderRadius: 7, cursor: "pointer",
-              color: C.red, fontSize: 13, textAlign: "left",
-              transition: "background 0.15s",
+              color: C.red, fontSize: 13, textAlign: "left", transition: "background 0.15s",
             }}
             onMouseEnter={e => (e.currentTarget.style.background = C.redSoft)}
             onMouseLeave={e => (e.currentTarget.style.background = "none")}
@@ -117,6 +110,7 @@ function TaskMenu({ task, groupId, onEdit, onDelete }: {
 function EditTaskModal({ task, groupId, onClose }: {
   task: TaskRead; groupId: string; onClose: () => void;
 }) {
+  const C = useColors();
   const qc = useQueryClient();
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -130,7 +124,6 @@ function EditTaskModal({ task, groupId, onClose }: {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
       onClose();
     } catch {
-      // error silently
     } finally {
       setSaving(false);
     }
@@ -142,7 +135,7 @@ function EditTaskModal({ task, groupId, onClose }: {
       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
     }} onClick={onClose}>
       <div style={{
-        background: "#111118", border: `1px solid rgba(255,255,255,0.1)`,
+        background: C.bgCard, border: `1px solid ${C.border}`,
         borderRadius: 16, padding: 24, width: 440, maxWidth: "90vw",
       }} onClick={e => e.stopPropagation()}>
         <div style={{ color: C.text, fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Edit Task</div>
@@ -150,10 +143,9 @@ function EditTaskModal({ task, groupId, onClose }: {
         <div style={{ marginBottom: 14 }}>
           <label style={{ color: C.textMuted, fontSize: 12, display: "block", marginBottom: 6 }}>Title *</label>
           <input
-            value={title}
-            onChange={e => setTitle(e.target.value)}
+            value={title} onChange={e => setTitle(e.target.value)}
             style={{
-              width: "100%", background: C.bgElevated, border: `1px solid rgba(255,255,255,0.09)`,
+              width: "100%", background: C.bgElevated, border: `1px solid ${C.border}`,
               borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 14,
               outline: "none", boxSizing: "border-box",
             }}
@@ -163,11 +155,9 @@ function EditTaskModal({ task, groupId, onClose }: {
         <div style={{ marginBottom: 14 }}>
           <label style={{ color: C.textMuted, fontSize: 12, display: "block", marginBottom: 6 }}>Description</label>
           <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            rows={3}
+            value={description} onChange={e => setDescription(e.target.value)} rows={3}
             style={{
-              width: "100%", background: C.bgElevated, border: `1px solid rgba(255,255,255,0.09)`,
+              width: "100%", background: C.bgElevated, border: `1px solid ${C.border}`,
               borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 14,
               outline: "none", resize: "vertical", boxSizing: "border-box",
             }}
@@ -177,10 +167,9 @@ function EditTaskModal({ task, groupId, onClose }: {
         <div style={{ marginBottom: 20 }}>
           <label style={{ color: C.textMuted, fontSize: 12, display: "block", marginBottom: 6 }}>Priority</label>
           <select
-            value={priority}
-            onChange={e => setPriority(e.target.value as any)}
+            value={priority} onChange={e => setPriority(e.target.value as any)}
             style={{
-              background: C.bgElevated, border: `1px solid rgba(255,255,255,0.09)`,
+              background: C.bgElevated, border: `1px solid ${C.border}`,
               borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 14, outline: "none",
             }}
           >
@@ -192,7 +181,7 @@ function EditTaskModal({ task, groupId, onClose }: {
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{
-            background: "none", border: `1px solid rgba(255,255,255,0.1)`,
+            background: "none", border: `1px solid ${C.border}`,
             borderRadius: 8, padding: "8px 16px", color: C.textMuted, cursor: "pointer", fontSize: 13,
           }}>Cancel</button>
           <button onClick={handleSave} disabled={saving || !title.trim()} style={{
@@ -213,6 +202,7 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
   onEdit: (task: TaskRead) => void;
   onDelete: (taskId: string) => void;
 }) {
+  const C = useColors();
   const [localCompleting, setLocalCompleting] = useState(false);
   const [hovered, setHovered] = useState(false);
   const completeMutation = useCompleteTask(groupId);
@@ -235,11 +225,10 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
       onMouseLeave={() => setHovered(false)}
       style={{
         background: C.bgCard,
-        border: `1px solid ${done ? C.borderGreen : C.border}`,
+        border: `1px solid ${done ? "rgba(34,197,94,0.25)" : C.border}`,
         borderRadius: 14, padding: "16px 18px",
         opacity: done ? 0.72 : 1,
-        transition: "all 0.3s",
-        position: "relative",
+        transition: "all 0.3s", position: "relative",
       }}>
       {done && (
         <div style={{
@@ -272,8 +261,8 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
             }}>{task.title}</span>
             <span style={{
               fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 20,
-              background: priorityBg(task.priority), color: priorityColor(task.priority),
-              border: `1px solid ${priorityColor(task.priority)}33`,
+              background: priorityBg(task.priority, C), color: priorityColor(task.priority, C),
+              border: `1px solid ${priorityColor(task.priority, C)}33`,
             }}>{task.priority}</span>
             {task.is_pinned && <span style={{ fontSize: 12 }}>📌</span>}
           </div>
@@ -307,7 +296,6 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
           )}
         </div>
 
-        {/* ⋯ menu — shows on hover */}
         <div style={{ opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
           <TaskMenu task={task} groupId={groupId} onEdit={onEdit} onDelete={onDelete} />
         </div>
@@ -318,6 +306,7 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
 
 // ── Dashboard Page ─────────────────────────────────────────────────────────────
 export function DashboardPage() {
+  const C = useColors();
   const { activeGroupId, toggleNotifPanel, toggleCreateTask, toggleInviteMembers } = useUIStore();
   const isOnline = usePresenceStore((s) => s.isOnline);
   const qc = useQueryClient();
@@ -361,11 +350,7 @@ export function DashboardPage() {
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
       {editingTask && (
-        <EditTaskModal
-          task={editingTask}
-          groupId={group.id}
-          onClose={() => setEditingTask(null)}
-        />
+        <EditTaskModal task={editingTask} groupId={group.id} onClose={() => setEditingTask(null)} />
       )}
 
       {/* Header */}
@@ -407,9 +392,7 @@ export function DashboardPage() {
             background: C.bgElevated, border: `1px solid ${C.border}`,
             borderRadius: 10, padding: "8px 14px", color: C.textMuted,
             cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 6,
-          }}>
-            👥 Invite
-          </button>
+          }}>👥 Invite</button>
           <button onClick={toggleCreateTask} style={{
             background: group.color, border: "none",
             borderRadius: 10, padding: "8px 16px", color: "#fff",

@@ -77,6 +77,19 @@ async def update_group(
     group.member_count = len(group.members)
     return group
 
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(
+    group_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = GroupService(db)
+    membership = await svc.get_membership(group_id, current_user.id)
+    if not membership:
+        raise HTTPException(403, "Not a member")
+    require_group_admin(current_user, membership)
+    if not await svc.delete(group_id):
+        raise HTTPException(404, "Group not found")
 
 @router.get("/{group_id}/members", response_model=List[GroupMemberRead])
 async def list_members(

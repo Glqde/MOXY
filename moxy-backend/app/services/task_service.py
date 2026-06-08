@@ -227,7 +227,8 @@ class TaskService:
 
         # ── STEP 5: Create notifications for all group members ─────────────
         member_ids = await self._get_group_member_ids(task.group_id)
-        user = await self.db.get(type(task.group), user_id)  # get user for name
+        from app.models.models import User
+        user = await self.db.get(User, user_id)
 
         # Defer to Celery — don't block the HTTP response
         from app.workers.tasks import send_completion_notifications

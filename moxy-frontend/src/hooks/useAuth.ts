@@ -22,8 +22,9 @@ export function useAuth() {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    clear();
+  await supabase.auth.signOut();
+  clear();
+  window.location.href = "/"; // force full reload to login page
   };
 
   return { user, token, isAuthenticated: !!user, signInWithGoogle, signOut };
