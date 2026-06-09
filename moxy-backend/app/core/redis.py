@@ -30,6 +30,7 @@ async def init_redis() -> Redis:
         socket_timeout=5,
         retry_on_timeout=True,
         health_check_interval=30,
+        ssl_cert_reqs=None,
     )
     await _redis_client.ping()
     return _redis_client
