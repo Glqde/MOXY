@@ -126,44 +126,44 @@ class TaskService:
 
     # ── The Core: Complete Task ────────────────────────────────────────────────
 
-async def complete_task(
-    self,
-    task_id: uuid.UUID,
-    user_id: uuid.UUID,
-    note: Optional[str] = None,
-) -> TaskCompletion:
-    from fastapi import HTTPException
+    async def complete_task(
+        self,
+        task_id: uuid.UUID,
+        user_id: uuid.UUID,
+        note: Optional[str] = None,
+    ) -> TaskCompletion:
+        from fastapi import HTTPException
 
-    task = await self.get_by_id(task_id, load_relations=True)
-    if not task or not task.is_active:
-        raise HTTPException(404, "Task not found")
+        task = await self.get_by_id(task_id, load_relations=True)
+        if not task or not task.is_active:
+            raise HTTPException(404, "Task not found")
 
-    membership = await self._get_membership(task.group_id, user_id)
-    if not membership:
-        raise HTTPException(403, "You are not a member of this group")
+        membership = await self._get_membership(task.group_id, user_id)
+        if not membership:
+            raise HTTPException(403, "You are not a member of this group")
 
-    if task.is_completed_this_period:
-        raise HTTPException(409, "This task was already completed for the current period")
+        if task.is_completed_this_period:
+            raise HTTPException(409, "This task was already completed for the current period")
 
-    period_start = task.current_period_start or datetime.now(timezone.utc)
+        period_start = task.current_period_start or datetime.now(timezone.utc)
 
-    # Try Redis lock, fall back to DB constraint if Redis fails
-    if self.redis:
-        try:
-            async with TaskLock(self.redis, str(task_id)) as acquired:
-                if not acquired:
-                    raise HTTPException(
-                        409,
-                        "Another member is completing this task right now. Try again in a moment."
-                    )
+        # Try Redis lock, fall back to DB constraint if Redis fails
+        if self.redis:
+            try:
+                async with TaskLock(self.redis, str(task_id)) as acquired:
+                    if not acquired:
+                        raise HTTPException(
+                            409,
+                            "Another member is completing this task right now. Try again in a moment."
+                        )
+                    return await self._do_complete(task, user_id, period_start, note)
+            except HTTPException:
+                raise
+            except Exception:
+                # Redis failed — fall back to DB constraint
                 return await self._do_complete(task, user_id, period_start, note)
-        except HTTPException:
-            raise
-        except Exception:
-            # Redis failed — fall back to DB constraint
+        else:
             return await self._do_complete(task, user_id, period_start, note)
-    else:
-        return await self._do_complete(task, user_id, period_start, note)
 
     async def _do_complete(
         self,
