@@ -126,48 +126,30 @@ class TaskService:
 
     # ── The Core: Complete Task ────────────────────────────────────────────────
 
-    async def complete_task(
-        self,
-        task_id: uuid.UUID,
-        user_id: uuid.UUID,
-        note: Optional[str] = None,
-    ) -> TaskCompletion:
-        """
-        Mark a task as completed for the current recurrence period.
+async def complete_task(
+    self,
+    task_id: uuid.UUID,
+    user_id: uuid.UUID,
+    note: Optional[str] = None,
+) -> TaskCompletion:
+    from fastapi import HTTPException
 
-        Guarantees:
-          - Exactly ONE completion per period, regardless of concurrent requests
-          - Redis lock prevents simultaneous completion attempts (fast path)
-          - DB unique constraint is the fallback safety net (slow path)
-          - Realtime broadcast fires after successful DB commit
+    task = await self.get_by_id(task_id, load_relations=True)
+    if not task or not task.is_active:
+        raise HTTPException(404, "Task not found")
 
-        Raises:
-          HTTPException 409 — task already completed this period
-          HTTPException 409 — concurrent completion in progress
-          HTTPException 404 — task not found
-          HTTPException 403 — user not in group
-        """
-        from fastapi import HTTPException
+    membership = await self._get_membership(task.group_id, user_id)
+    if not membership:
+        raise HTTPException(403, "You are not a member of this group")
 
-        task = await self.get_by_id(task_id, load_relations=True)
-        if not task or not task.is_active:
-            raise HTTPException(404, "Task not found")
+    if task.is_completed_this_period:
+        raise HTTPException(409, "This task was already completed for the current period")
 
-        # Verify user is a member of the task's group
-        membership = await self._get_membership(task.group_id, user_id)
-        if not membership:
-            raise HTTPException(403, "You are not a member of this group")
+    period_start = task.current_period_start or datetime.now(timezone.utc)
 
-        # Check if already completed this period (quick DB check before acquiring lock)
-        if task.is_completed_this_period:
-            raise HTTPException(409, "This task was already completed for the current period")
-
-        period_start = task.current_period_start or datetime.now(timezone.utc)
-
-        # ── STEP 1: Acquire Redis distributed lock ──────────────────────────
-        # This prevents two users who simultaneously tap "complete" from both
-        # proceeding to the DB. Only the first one through wins the lock.
-        if self.redis:
+    # Try Redis lock, fall back to DB constraint if Redis fails
+    if self.redis:
+        try:
             async with TaskLock(self.redis, str(task_id)) as acquired:
                 if not acquired:
                     raise HTTPException(
@@ -175,9 +157,13 @@ class TaskService:
                         "Another member is completing this task right now. Try again in a moment."
                     )
                 return await self._do_complete(task, user_id, period_start, note)
-        else:
-            # Fallback if Redis unavailable — DB constraint still protects us
+        except HTTPException:
+            raise
+        except Exception:
+            # Redis failed — fall back to DB constraint
             return await self._do_complete(task, user_id, period_start, note)
+    else:
+        return await self._do_complete(task, user_id, period_start, note)
 
     async def _do_complete(
         self,
