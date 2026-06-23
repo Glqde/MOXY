@@ -133,7 +133,10 @@ class TaskService:
         note: Optional[str] = None,
     ) -> TaskCompletion:
         from fastapi import HTTPException
+
+        # Force fresh read from DB, bypassing identity map cache
         self.db.expire_all()
+
         task = await self.get_by_id(task_id, load_relations=True)
         if not task or not task.is_active:
             raise HTTPException(404, "Task not found")
@@ -195,11 +198,11 @@ class TaskService:
 
             await self.db.flush()
 
-        except IntegrityError:
+        except IntegrityError as e:
             # ── STEP 3: DB constraint fired — duplicate completion attempt ──
-            # This is the slow path safety net when Redis lock misses.
+            # TEMP DEBUG: show the real underlying error
             await self.db.rollback()
-            raise HTTPException(409, "Task was already completed by another member")
+            raise HTTPException(409, f"DEBUG: {str(e)}")
 
         # ── STEP 4: Log to activity feed ───────────────────────────────────
         log = ActivityLog(
