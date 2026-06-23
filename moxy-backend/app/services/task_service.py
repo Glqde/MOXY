@@ -133,7 +133,7 @@ class TaskService:
         note: Optional[str] = None,
     ) -> TaskCompletion:
         from fastapi import HTTPException
-
+        self.db.expire_all()
         task = await self.get_by_id(task_id, load_relations=True)
         if not task or not task.is_active:
             raise HTTPException(404, "Task not found")
