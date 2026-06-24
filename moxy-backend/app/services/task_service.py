@@ -150,23 +150,37 @@ class TaskService:
 
         period_start = task.current_period_start or datetime.now(timezone.utc)
 
-        # Try Redis lock, fall back to DB constraint if Redis fails
-        if self.redis:
-            try:
-                async with TaskLock(self.redis, str(task_id)) as acquired:
-                    if not acquired:
-                        raise HTTPException(
-                            409,
-                            "Another member is completing this task right now. Try again in a moment."
-                        )
-                    return await self._do_complete(task, user_id, period_start, note)
-            except HTTPException:
-                raise
-            except Exception:
-                # Redis failed — fall back to DB constraint
-                return await self._do_complete(task, user_id, period_start, note)
-        else:
+        if not self.redis:
             return await self._do_complete(task, user_id, period_start, note)
+
+        # IMPORTANT: only lock ACQUISITION is allowed to fail-soft here.
+        # _do_complete() must run AT MOST ONCE per request — calling it twice
+        # inserts two TaskCompletion rows for the same (task_id, period_start)
+        # in the same transaction and self-collides on the unique constraint,
+        # rolling back the legitimate completion along with it.
+        lock = TaskLock(self.redis, str(task_id))
+        try:
+            acquired = await lock.__aenter__()
+        except Exception:
+            # Redis itself unreachable — proceed without the lock.
+            # The DB unique constraint is still the last line of defense.
+            acquired = None
+
+        if acquired is False:
+            await lock.__aexit__(None, None, None)
+            raise HTTPException(
+                409,
+                "Another member is completing this task right now. Try again in a moment."
+            )
+
+        try:
+            return await self._do_complete(task, user_id, period_start, note)
+        finally:
+            if acquired:
+                try:
+                    await lock.__aexit__(None, None, None)
+                except Exception:
+                    pass
 
     async def _do_complete(
         self,
@@ -198,11 +212,11 @@ class TaskService:
 
             await self.db.flush()
 
-        except IntegrityError as e:
+        except IntegrityError:
             # ── STEP 3: DB constraint fired — duplicate completion attempt ──
             # TEMP DEBUG: show the real underlying error
             await self.db.rollback()
-            raise HTTPException(409, f"DEBUG: {str(e)}")
+            raise HTTPException(409, "This task was already completed for the current period")
 
         # ── STEP 4: Log to activity feed ───────────────────────────────────
         log = ActivityLog(
@@ -215,44 +229,52 @@ class TaskService:
         self.db.add(log)
 
         # ── STEP 5: Create notifications for all group members ─────────────
-        member_ids = await self._get_group_member_ids(task.group_id)
-        from app.models.models import User
-        user = await self.db.get(User, user_id)
-
-        # Defer to Celery — don't block the HTTP response
-        from app.workers.tasks import send_completion_notifications
-        send_completion_notifications.delay(
-            task_id=str(task.id),
-            task_title=task.title,
-            task_emoji=task.emoji,
-            completed_by_id=str(user_id),
-            group_id=str(task.group_id),
-            member_ids=[str(m) for m in member_ids],
-        )
+        try:
+            member_ids = await self._get_group_member_ids(task.group_id)
+            from app.workers.tasks import send_completion_notifications
+            send_completion_notifications.delay(
+                task_id=str(task.id),
+                task_title=task.title,
+                task_emoji=task.emoji,
+                completed_by_id=str(user_id),
+                group_id=str(task.group_id),
+                member_ids=[str(m) for m in member_ids],
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to enqueue completion notifications for task %s", task.id
+            )
 
         # ── STEP 6: Publish realtime event via Redis Pub/Sub ───────────────
         # This fires BEFORE commit — if commit fails, clients get a transient
         # "ghost" event. Acceptable tradeoff for low latency; clients re-sync
         # on reconnect. For strong consistency, move publish to after commit.
         if self.redis:
-            from app.services.user_service import UserService
-            user_service = UserService(self.db)
-            completer = await user_service.get_by_id(user_id)
+            try:
+                from app.services.user_service import UserService
+                user_service = UserService(self.db)
+                completer = await user_service.get_by_id(user_id)
 
-            await publish_group_event(
-                self.redis,
-                str(task.group_id),
-                {
-                    "event": "task_completed",
-                    "task_id": str(task.id),
-                    "task_title": task.title,
-                    "task_emoji": task.emoji,
-                    "completed_by_id": str(user_id),
-                    "completed_by_name": completer.full_name if completer else "A member",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                    "group_id": str(task.group_id),
-                },
-            )
+                await publish_group_event(
+                    self.redis,
+                    str(task.group_id),
+                    {
+                        "event": "task_completed",
+                        "task_id": str(task.id),
+                        "task_title": task.title,
+                        "task_emoji": task.emoji,
+                        "completed_by_id": str(user_id),
+                        "completed_by_name": completer.full_name if completer else "A member",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "group_id": str(task.group_id),
+                    },
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Failed to publish task_completed event for task %s", task.id
+                )
 
         return completion
 
