@@ -1,7 +1,7 @@
 // src/pages/DashboardPage.tsx
 import { useState, useRef, useEffect } from "react";
 import { useUIStore, usePresenceStore } from "@/store";
-import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
+import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
 import { taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
@@ -204,10 +204,13 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
 }) {
   const C = useColors();
   const [localCompleting, setLocalCompleting] = useState(false);
+  const [localUndoing, setLocalUndoing] = useState(false);   // ← add this
   const [hovered, setHovered] = useState(false);
   const completeMutation = useCompleteTask(groupId);
+  const undoMutation = useUndoCompleteTask(groupId);          // ← add this
   const done = task.is_completed_this_period;
   const isCompleting = completeMutation.isPending || localCompleting;
+  const isUndoing = undoMutation.isPending || localUndoing;   // ← add this
 
   const handleComplete = async () => {
     if (done || isCompleting) return;
@@ -216,6 +219,17 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
       await completeMutation.mutateAsync({ taskId: task.id });
     } finally {
       setLocalCompleting(false);
+    }
+  };
+
+  // ← add this handler
+  const handleUndo = async () => {
+    if (!done || isUndoing) return;
+    setLocalUndoing(true);
+    try {
+      await undoMutation.mutateAsync(task.id);
+    } finally {
+      setLocalUndoing(false);
     }
   };
 
@@ -289,9 +303,27 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
               marginTop: 8, padding: "6px 10px", borderRadius: 8,
               background: C.greenSoft, border: `1px solid rgba(34,197,94,0.2)`,
               fontSize: 12, color: C.green,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
             }}>
-              ✓ {task.latest_completion.completed_by_user.full_name} completed ·{" "}
-              {new Date(task.latest_completion.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <span>
+                ✓ {task.latest_completion.completed_by_user.full_name} completed ·{" "}
+                {new Date(task.latest_completion.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+              <button
+                onClick={handleUndo}
+                disabled={isUndoing}
+                style={{
+                  background: "none", border: `1px solid ${C.green}44`,
+                  borderRadius: 6, padding: "2px 8px", color: C.green,
+                  fontSize: 11, cursor: isUndoing ? "not-allowed" : "pointer",
+                  opacity: isUndoing ? 0.5 : 1, marginLeft: 8,
+                  transition: "all 0.15s",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = C.greenSoft)}
+                onMouseLeave={e => (e.currentTarget.style.background = "none")}
+              >
+                {isUndoing ? "…" : "↩ Undo"}
+              </button>
             </div>
           )}
         </div>

@@ -98,6 +98,8 @@ export const taskApi = {
 
   emergencyReset: (groupId: string, taskId: string) =>
     apiClient.post<TaskRead>(`/groups/${groupId}/tasks/${taskId}/reset/`).then((r) => r.data),
+  undoComplete: (groupId: string, taskId: string) =>
+    apiClient.delete<TaskRead>(`/groups/${groupId}/tasks/${taskId}/complete/`).then((r) => r.data),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────

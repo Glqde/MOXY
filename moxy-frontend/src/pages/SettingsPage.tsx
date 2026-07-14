@@ -312,13 +312,6 @@ export function SettingsPage() {
             {new Date(me.created_at).toLocaleDateString([], { month: "long", year: "numeric" })}
           </span>
         </Row>
-        <Row label="Account status" sub="Your subscription plan" C={C}>
-          <span style={{
-            background: C.accentSoft, color: C.accent,
-            border: `1px solid ${C.accent}40`,
-            borderRadius: 6, padding: "3px 9px", fontSize: 11, fontWeight: 500,
-          }}>Free plan</span>
-        </Row>
         <Row label="Sign out" sub="Sign out of all devices" C={C}>
           <button onClick={signOut} style={{
             padding: "7px 14px", borderRadius: 9,

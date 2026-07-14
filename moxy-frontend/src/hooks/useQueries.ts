@@ -174,6 +174,42 @@ export function useCompleteTask(groupId: string) {
   });
 }
 
+export function useUndoCompleteTask(groupId: string) {
+  const qc = useQueryClient();
+  const { addToast } = useToastStore.getState();
+
+  return useMutation({
+    mutationFn: (taskId: string) => taskApi.undoComplete(groupId, taskId),
+
+    // Optimistically flip task back to pending
+    onMutate: async (taskId) => {
+      await qc.cancelQueries({ queryKey: QK.tasks(groupId) });
+      const previous = qc.getQueryData<TaskRead[]>(QK.tasks(groupId));
+      qc.setQueryData<TaskRead[]>(QK.tasks(groupId), (old) =>
+        old?.map((t) =>
+          t.id === taskId
+            ? { ...t, is_completed_this_period: false }
+            : t
+        ) ?? []
+      );
+      return { previous };
+    },
+
+    onError: (_err, _taskId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(QK.tasks(groupId), ctx.previous);
+      addToast({ emoji: "❌", title: "Couldn't undo completion", type: "error" });
+    },
+
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
+    },
+
+    onSuccess: () => {
+      addToast({ emoji: "↩️", title: "Completion undone" });
+    },
+  });
+}
+
 export function useEmergencyReset(groupId: string) {
   const qc = useQueryClient();
   const { addToast } = useToastStore.getState();
