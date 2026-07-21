@@ -10,6 +10,7 @@ x-common-env: &common-env
   REDIS_URL: redis://redis:6379/0
   REDIS_CELERY_URL: redis://redis:6379/1
   SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production-min-32-chars}
+  INTERNAL_CRON_SECRET: ${INTERNAL_CRON_SECRET}
   SUPABASE_URL: ${SUPABASE_URL}
   SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
   SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}

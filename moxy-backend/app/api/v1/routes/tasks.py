@@ -140,3 +140,19 @@ async def emergency_reset_task(
         raise HTTPException(403, "Only admins can force-reset tasks")
     svc = TaskService(db=db, redis=redis)
     return await svc.reset_task(task_id)
+
+@router.delete("/{task_id}/complete", response_model=TaskRead)
+async def undo_complete_task(
+    group_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    redis=Depends(get_redis),
+):
+    """Undo the current period's completion. Only the completer can undo it."""
+    await _require_member(group_id, current_user, db)
+    svc = TaskService(db=db, redis=redis)
+    return await svc.undo_complete_task(
+        task_id=task_id,
+        user_id=current_user.id,
+    )

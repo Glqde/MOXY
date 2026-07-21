@@ -1,16 +1,19 @@
 """
 app/main.py
 """
+import secrets
 import time
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.redis import init_redis, close_redis, check_rate_limit, get_redis
+from app.db.session import get_db
 from app.api.v1.routes import tasks, groups, users, notifications
 from app.api.v1.routes.websocket import mount_socketio
 
@@ -64,7 +67,7 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def rate_limit_middleware(request: Request, call_next):
-        if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json"):
+        if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json","/internal/reset-due-tasks"):
             return await call_next(request)
 
         client_ip = request.client.host if request.client else "unknown"
@@ -120,6 +123,29 @@ def create_app() -> FastAPI:
             return {"redis": "ok"}
         except Exception as e:
             return JSONResponse(status_code=503, content={"redis": "unavailable", "error": str(e)})
+
+    @app.post("/internal/reset-due-tasks", tags=["internal"])
+    async def trigger_reset_due_tasks(
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+        redis=Depends(get_redis),
+    ):
+        """
+        Replaces Celery Beat in production, since Beat doesn't run on
+        Render's free tier. Point an external cron (e.g. cron-job.org,
+        same setup as the /health keep-warm ping) at this every minute
+        with the X-Internal-Secret header set to INTERNAL_CRON_SECRET.
+        """
+        provided = request.headers.get("X-Internal-Secret", "")
+        if not settings.INTERNAL_CRON_SECRET or not secrets.compare_digest(
+            provided, settings.INTERNAL_CRON_SECRET
+        ):
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing secret")
+
+        from app.services.task_service import run_due_task_resets
+        result = await run_due_task_resets(db, redis)
+        logger.info("internal.reset_due_tasks", **result)
+        return result
 
     api_prefix = "/api/v1"
     app.include_router(users.router, prefix=api_prefix)

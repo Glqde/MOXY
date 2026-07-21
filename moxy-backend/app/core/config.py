@@ -59,6 +59,7 @@ class Settings(BaseSettings):
 
     # ── Task Locking ──────────────────────────────────────────────────────────
     TASK_LOCK_TTL_SECONDS: int = 30
+    INTERNAL_CRON_SECRET: str = ""
 
     @property
     def is_production(self) -> bool:

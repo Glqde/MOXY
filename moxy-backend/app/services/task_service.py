@@ -277,6 +277,95 @@ class TaskService:
                 )
 
         return completion
+    
+    async def undo_complete_task(
+        self,
+        task_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Task:
+        """
+        Reverses the most recent completion for the current period.
+        Only the user who completed it can undo it, and only within the
+        same period (can't undo after the task has already reset).
+        """
+        from fastapi import HTTPException
+
+        self.db.expire_all()
+
+        task = await self.get_by_id(task_id, load_relations=True)
+        if not task or not task.is_active:
+            raise HTTPException(404, "Task not found")
+
+        membership = await self._get_membership(task.group_id, user_id)
+        if not membership:
+            raise HTTPException(403, "You are not a member of this group")
+
+        if not task.is_completed_this_period:
+            raise HTTPException(409, "This task has not been completed yet")
+
+        # Find the most recent completion for the current period
+        from sqlalchemy import select
+        result = await self.db.execute(
+            select(TaskCompletion)
+            .where(
+                TaskCompletion.task_id == task_id,
+                TaskCompletion.period_start == task.current_period_start,
+            )
+            .order_by(TaskCompletion.completed_at.desc())
+            .limit(1)
+        )
+        completion = result.scalar_one_or_none()
+
+        if not completion:
+            raise HTTPException(404, "No completion record found for this period")
+
+        if completion.completed_by != user_id:
+            raise HTTPException(403, "You can only undo your own completions")
+
+        # Reverse the completion
+        await self.db.delete(completion)
+        task.is_completed_this_period = False
+        task.times_completed_total = max(0, task.times_completed_total - 1)
+        task.completion_streak = max(0, task.completion_streak - 1)
+        await self.db.flush()
+
+        # Log to activity feed
+        log = ActivityLog(
+            group_id=task.group_id,
+            user_id=user_id,
+            task_id=task.id,
+            event_type="task_completion_undone",
+            event_data={"task_title": task.title, "task_emoji": task.emoji},
+        )
+        self.db.add(log)
+
+        # Broadcast realtime event — best effort
+        if self.redis:
+            try:
+                from app.services.user_service import UserService
+                user_service = UserService(self.db)
+                undoer = await user_service.get_by_id(user_id)
+
+                await publish_group_event(
+                    self.redis,
+                    str(task.group_id),
+                    {
+                        "event": "task_completion_undone",
+                        "task_id": str(task.id),
+                        "task_title": task.title,
+                        "task_emoji": task.emoji,
+                        "undone_by_id": str(user_id),
+                        "undone_by_name": undoer.full_name if undoer else "A member",
+                        "group_id": str(task.group_id),
+                    },
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Failed to publish task_completion_undone event for task %s", task.id
+                )
+
+        return await self.get_by_id(task_id, load_relations=True)
 
     async def reset_task(self, task_id: uuid.UUID) -> Task:
         """
@@ -363,3 +452,28 @@ class TaskService:
             raise HTTPException(403, "You are not a member of this group")
 
         return membership
+    async def run_due_task_resets(db: AsyncSession, redis=None) -> dict:
+
+        from app.models.models import RecurrenceRule
+
+        now = datetime.now(timezone.utc)
+        result = await db.execute(
+            select(RecurrenceRule)
+            .join(Task, Task.id == RecurrenceRule.task_id)
+            .where(and_(RecurrenceRule.next_reset_at <= now, Task.is_active == True))
+        )
+        rules = list(result.scalars().all())
+
+        svc = TaskService(db=db, redis=redis)
+        reset_count = 0
+        errors: List[dict] = []
+
+        for rule in rules:
+            try:
+                async with db.begin_nested():
+                    await svc.reset_task(rule.task_id)
+                reset_count += 1
+            except Exception as exc:
+                errors.append({"task_id": str(rule.task_id), "error": str(exc)})
+
+        return {"checked": len(rules), "reset": reset_count, "errors": errors}

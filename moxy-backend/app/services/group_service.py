@@ -28,10 +28,18 @@ class GroupService:
         return result.scalar_one_or_none()
     
     async def delete(self, group_id: uuid.UUID) -> bool:
+        from sqlalchemy import text
+
         group = await self.get_by_id(group_id)
         if not group:
             return False
-        await self.db.delete(group)
+
+        # Delete directly via SQL so Postgres handles cascades
+        # instead of SQLAlchemy ORM (which tries to SET NULL on task_completions.task_id)
+        await self.db.execute(
+            text("DELETE FROM groups WHERE id = :group_id"),
+            {"group_id": str(group_id)}
+        )
         await self.db.flush()
         return True
 

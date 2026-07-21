@@ -30,7 +30,7 @@ async def init_redis() -> Redis:
         socket_timeout=5,
         retry_on_timeout=True,
         health_check_interval=30,
-        ssl_cert_reqs="none",
+        **({"ssl_cert_reqs": "none"} if settings.REDIS_URL.startswith("rediss://") else {}),
     )
     await _redis_client.ping()
     return _redis_client

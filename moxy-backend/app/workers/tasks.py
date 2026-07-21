@@ -62,41 +62,19 @@ async def _get_fresh_redis():
 )
 def reset_due_tasks(self):
     """
-    Runs every minute via Celery Beat.
-    Queries RecurrenceRule rows where next_reset_at <= now()
-    and resets each task's completion state.
+    Runs every minute via Celery Beat — when Beat is actually running
+    (e.g. local docker-compose). In production (Render free tier), Beat
+    doesn't run; /internal/reset-due-tasks calls the same shared logic
+    instead, triggered by an external cron.
     """
     async def _inner():
-        from sqlalchemy import select, and_
-        from app.models.models import RecurrenceRule, Task
-        from app.services.task_service import TaskService
+        from app.services.task_service import run_due_task_resets
 
-        now = datetime.now(timezone.utc)
         redis = await _get_fresh_redis()
-
         try:
             async with _get_fresh_db() as db:
-                result = await db.execute(
-                    select(RecurrenceRule)
-                    .join(Task, Task.id == RecurrenceRule.task_id)
-                    .where(
-                        and_(
-                            RecurrenceRule.next_reset_at <= now,
-                            Task.is_active == True,
-                        )
-                    )
-                )
-                rules = list(result.scalars().all())
-
-                logger.info("reset_due_tasks.found", count=len(rules), now=now.isoformat())
-
-                task_service = TaskService(db=db, redis=redis)
-                for rule in rules:
-                    try:
-                        await task_service.reset_task(rule.task_id)
-                        logger.info("task.reset", task_id=str(rule.task_id))
-                    except Exception as exc:
-                        logger.error("task.reset.failed", task_id=str(rule.task_id), error=str(exc))
+                result = await run_due_task_resets(db, redis)
+                logger.info("reset_due_tasks.completed", **result)
         finally:
             await redis.aclose()
 
