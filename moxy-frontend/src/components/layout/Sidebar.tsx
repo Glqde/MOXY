@@ -198,7 +198,7 @@ export function Sidebar({ groups }: SidebarProps) {
         <EditGroupModal group={editingGroup} onClose={() => setEditingGroup(null)} />
       )}
       {showJoinModal && (
-        <JoinGroupModal onClose={() => setShowJoinModal(false)} />
+      <JoinGroupModal key={Date.now()} onClose={() => setShowJoinModal(false)} />
       )}
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
