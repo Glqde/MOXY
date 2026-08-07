@@ -3,9 +3,7 @@ import { useState } from "react";
 import { Modal, useFormStyles } from "@/components/ui/Modal";
 import { useColors } from "@/lib/theme";
 import { groupApi } from "@/api/services";
-import { useGroups } from "@/hooks/useQueries";
-import { useUIStore } from "@/store";
-import { useToastStore } from "@/store";
+import { useUIStore, useToastStore } from "@/store";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
 
@@ -22,21 +20,23 @@ export function JoinGroupModal({ onClose }: Props) {
 
   const [code, setCode] = useState("");
   const [joining, setJoining] = useState(false);
+  const [error, setError] = useState("");
 
   const handleJoin = async () => {
     const parsed = code.trim().split("/").pop() ?? "";
-    if (!parsed) return;
+    if (!parsed) { setError("Please enter an invite link or code"); return; }
+    setError("");
     setJoining(true);
     try {
       const group = await groupApi.joinByInvite(parsed);
-      qc.invalidateQueries({ queryKey: QK.groups });
+      await qc.invalidateQueries({ queryKey: QK.groups });
       addToast({ emoji: group.icon, title: `Joined ${group.name}!` });
       setActiveGroup(group.id);
       setActivePage("dashboard");
       onClose();
     } catch (e: unknown) {
       const msg = (e as { message?: string }).message ?? "Invalid invite code";
-      addToast({ emoji: "❌", title: msg, type: "error" });
+      setError(msg);
     } finally {
       setJoining(false);
     }
@@ -53,22 +53,25 @@ export function JoinGroupModal({ onClose }: Props) {
         <input
           autoFocus
           value={code}
-          onChange={(e) => setCode(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
+          onChange={(e) => { setCode(e.target.value); setError(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !joining) handleJoin(); }}
           placeholder="https://moxy-brown.vercel.app/join/abc123"
-          style={F.input}
+          style={{ ...F.input, borderColor: error ? C.red : C.border }}
         />
+        {error && (
+          <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{error}</div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
         <button onClick={onClose} style={F.btn.ghost}>Cancel</button>
         <button
           onClick={handleJoin}
-          disabled={joining || !code.trim()}
+          disabled={joining}
           style={{
             ...F.btn.primary,
-            opacity: joining || !code.trim() ? 0.6 : 1,
-            cursor: joining || !code.trim() ? "not-allowed" : "pointer",
+            opacity: joining ? 0.6 : 1,
+            cursor: joining ? "not-allowed" : "pointer",
           }}
         >{joining ? "Joining…" : "Join Group"}</button>
       </div>
