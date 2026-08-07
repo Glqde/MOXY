@@ -8,6 +8,7 @@ import { groupApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
 import type { GroupRead } from "@/types";
+import { JoinGroupModal } from "@/components/modals/JoinGroupModal";
 
 interface SidebarProps {
   groups: GroupRead[];
@@ -170,20 +171,21 @@ export function Sidebar({ groups }: SidebarProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupRead | null>(null);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+  const [showJoinModal, setShowJoinModal] = useState(false);
   const qc = useQueryClient();
 
   const initials = user?.full_name
     .split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() ?? "?";
 
   const handleDeleteGroup = async (groupId: string) => {
-  if (!confirm("Delete this group? All tasks will be lost.")) return;
-  try {
-    await groupApi.delete(groupId);
-    qc.invalidateQueries({ queryKey: QK.groups });
-  } catch {
-    alert("Failed to delete group");
-  }
-  };  
+    if (!confirm("Delete this group? All tasks will be lost.")) return;
+    try {
+      await groupApi.delete(groupId);
+      qc.invalidateQueries({ queryKey: QK.groups });
+    } catch {
+      alert("Failed to delete group");
+    }
+  };
 
   return (
     <div style={{
@@ -194,6 +196,9 @@ export function Sidebar({ groups }: SidebarProps) {
     }}>
       {editingGroup && (
         <EditGroupModal group={editingGroup} onClose={() => setEditingGroup(null)} />
+      )}
+      {showJoinModal && (
+        <JoinGroupModal onClose={() => setShowJoinModal(false)} />
       )}
 
       {/* ── Logo ─────────────────────────────────────────────────────────── */}
@@ -305,6 +310,20 @@ export function Sidebar({ groups }: SidebarProps) {
         >
           <span style={{ fontSize: 14 }}>+</span>
           <span>New Group</span>
+        </button>
+
+        <button
+          onClick={() => setShowJoinModal(true)}
+          style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 9,
+            padding: "8px 10px", borderRadius: 8, marginTop: 4,
+            border: `1px dashed ${C.border}`, cursor: "pointer",
+            background: "transparent", color: C.textSub, fontSize: 13,
+            transition: "all 0.15s",
+          }}
+        >
+          <span style={{ fontSize: 14 }}>↗</span>
+          <span>Join Group</span>
         </button>
       </div>
 
