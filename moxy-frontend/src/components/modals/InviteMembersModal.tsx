@@ -60,7 +60,7 @@ interface Props {
 export function InviteMembersModal({ group, onClose }: Props) {
   const C = useColors();
   const F = useFormStyles();
-  const [tab, setTab] = useState<"search" | "link" | "join">("search");
+  const [tab, setTab] = useState<"search" | "link">("search");
   const { addToast } = useToastStore.getState();
 
   const [query, setQuery] = useState("");
@@ -141,7 +141,6 @@ export function InviteMembersModal({ group, onClose }: Props) {
       }}>
         <Tab label="Search users" active={tab === "search"} onClick={() => setTab("search")} />
         <Tab label="Invite link"  active={tab === "link"}   onClick={() => setTab("link")} />
-        <Tab label="Join a group" active={tab === "join"}   onClick={() => setTab("join")} />
       </div>
 
       {/* ── Tab 1: Search ───────────────────────────────────────────────── */}
@@ -328,57 +327,6 @@ export function InviteMembersModal({ group, onClose }: Props) {
           }}>
             ⚠️ Anyone with this link can join the group. Regenerate it to invalidate the old one.
           </div>
-        </div>
-      )}
-
-      {/* ── Tab 3: Join by code ────────────────────────────────────────── */}
-      {tab === "join" && (
-        <div>
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 16 }}>
-              Paste an invite link or code to join a group you were invited to.
-            </div>
-            <label style={F.label}>Invite link or code</label>
-            <input
-              autoFocus value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleJoin(); }}
-              placeholder="https://moxy.app/join/abc123 or just abc123"
-              style={{ ...F.input, marginBottom: 12 }}
-            />
-            <button
-              onClick={handleJoin} disabled={joining || !joinCode.trim()}
-              style={{
-                width: "100%", padding: "11px", borderRadius: 10, border: "none",
-                background: joinCode.trim() ? C.accent : C.accentSoft,
-                color: joinCode.trim() ? "#fff" : C.textMuted,
-                fontSize: 14, fontWeight: 500,
-                cursor: joinCode.trim() ? "pointer" : "default", transition: "all 0.15s",
-              }}
-            >{joining ? "Joining…" : "Join group"}</button>
-          </div>
-
-          {myGroups.length > 0 && (
-            <div>
-              <div style={{ color: C.textSub, fontSize: 10, letterSpacing: "1.2px", textTransform: "uppercase", marginBottom: 10 }}>
-                Your current groups
-              </div>
-              {myGroups.map((g) => (
-                <div key={g.id} style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "8px 10px", borderRadius: 9,
-                  background: C.bgElevated, marginBottom: 6,
-                }}>
-                  <span style={{ fontSize: 18 }}>{g.icon}</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ color: C.text, fontSize: 13 }}>{g.name}</div>
-                    <div style={{ color: C.textSub, fontSize: 11 }}>{g.member_count} members</div>
-                  </div>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: g.color }} />
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </Modal>
