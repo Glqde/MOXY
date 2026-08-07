@@ -164,6 +164,8 @@ async def join_by_invite(
 ):
     svc = GroupService(db)
     group = await svc.join_by_invite(invite_code, current_user.id)
+    # Reload with members to avoid lazy loading
+    group = await svc.get_by_id(group.id)
     group.member_count = len(group.members)
     return group
 
