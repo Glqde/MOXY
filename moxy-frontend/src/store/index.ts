@@ -11,8 +11,10 @@ import type { UserRead } from "@/types";
 interface AuthState {
   user: UserRead | null;
   token: string | null;
+  initialized: boolean; // false until the stored session has been checked
   setUser: (user: UserRead | null) => void;
   setToken: (token: string | null) => void;
+  setInitialized: () => void;
   clear: () => void;
 }
 
@@ -21,8 +23,10 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       token: null,
+      initialized: false,
       setUser: (user) => set({ user }),
       setToken: (token) => set({ token }),
+      setInitialized: () => set({ initialized: true }),
       clear: () => set({ user: null, token: null }),
     }),
     {

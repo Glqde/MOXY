@@ -138,7 +138,7 @@ export interface NotificationRead {
   is_read: boolean;
   group_id: string | null;
   task_id: string | null;
-  metadata: Record<string, unknown>;
+  extra_data: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -148,6 +148,7 @@ export interface ActivityLogRead {
   id: string;
   group_id: string;
   user_id: string;
+  user: UserPublic | null;
   task_id: string | null;
   event_type: string;
   event_data: Record<string, unknown>;
@@ -167,6 +168,16 @@ export interface WsTaskCompleted {
   group_id: string;
 }
 
+export interface WsTaskCompletionUndone {
+  event: "task_completion_undone";
+  task_id: string;
+  task_title: string;
+  task_emoji: string;
+  undone_by_id: string;
+  undone_by_name: string;
+  group_id: string;
+}
+
 export interface WsTaskReset {
   event: "task_reset";
   task_id: string;
@@ -182,7 +193,7 @@ export interface WsMemberPresence {
   online: boolean;
 }
 
-export type WsEvent = WsTaskCompleted | WsTaskReset | WsMemberPresence;
+export type WsEvent = WsTaskCompleted | WsTaskCompletionUndone | WsTaskReset | WsMemberPresence;
 
 // ─── Friend requests ─────────────────────────────────────────────────────────
 

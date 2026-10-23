@@ -1,20 +1,23 @@
 // src/components/layout/AppShell.tsx
+import { lazy, Suspense } from "react";
 import { useGroups } from "@/hooks/useQueries";
 import { useSocket } from "@/hooks/useSocket";
 import { useAuthStore, useUIStore } from "@/store";
 import { useColors } from "@/lib/theme";
 import { Sidebar } from "./Sidebar";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { AnalyticsPage } from "@/pages/AnalyticsPage";
-import { ActivityPage } from "@/pages/ActivityPage";
-import { SettingsPage } from "@/pages/SettingsPage";
 import { NotifPanel } from "@/components/notifications/NotifPanel";
 import { CreateTaskModal } from "@/components/modals/CreateTaskModal";
 import { CreateGroupModal } from "@/components/modals/CreateGroupModal";
 import { InviteMembersModal } from "@/components/modals/InviteMembersModal";
 
+// Secondary pages load on first visit, keeping them out of the initial bundle
+const AnalyticsPage = lazy(() => import("@/pages/AnalyticsPage").then((m) => ({ default: m.AnalyticsPage })));
+const ActivityPage = lazy(() => import("@/pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+
 export function AppShell() {
-  const token = useAuthStore((s) => s.token);
+  const userId = useAuthStore((s) => s.user?.id);
   const {
     activePage, activeGroupId,
     showNotifPanel, showCreateTask, showCreateGroup, showInviteMembers,
@@ -27,10 +30,7 @@ export function AppShell() {
   const activeGroup = groups.find((g) => g.id === activeGroupId);
   const groupIds = groups.map((g) => g.id);
 
-  const { isConnected } = useSocket({
-    groupIds,
-    enabled: !!token && groupIds.length > 0,
-  });
+  const { isConnected } = useSocket({ groupIds, enabled: !!userId });
 
   return (
     <div style={{
@@ -53,9 +53,11 @@ export function AppShell() {
 
       <div style={{ flex: 1, display: "flex", position: "relative", overflow: "hidden", background: C.bgBase, transition: "background 0.2s" }}>
         {activePage === "dashboard" && <DashboardPage />}
-        {activePage === "analytics" && <AnalyticsPage />}
-        {activePage === "activity"  && <ActivityPage />}
-        {activePage === "settings"  && <SettingsPage />}
+        <Suspense fallback={null}>
+          {activePage === "analytics" && <AnalyticsPage />}
+          {activePage === "activity"  && <ActivityPage />}
+          {activePage === "settings"  && <SettingsPage />}
+        </Suspense>
         {showNotifPanel && <NotifPanel />}
       </div>
 

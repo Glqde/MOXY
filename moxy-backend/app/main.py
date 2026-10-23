@@ -1,9 +1,10 @@
 """
 app/main.py
 """
+import asyncio
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, status
@@ -12,12 +13,30 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.logging import configure_logging
 from app.core.redis import init_redis, close_redis, check_rate_limit, get_redis
-from app.db.session import get_db
-from app.api.v1.routes import tasks, groups, users, notifications
-from app.api.v1.routes.websocket import mount_socketio
+from app.db.session import get_db, get_db_context
+from app.api.v1.routes import activity, tasks, groups, users, notifications
+from app.api.v1.routes.websocket import wrap_with_socketio
+from app.services.task_service import run_due_task_resets
 
+configure_logging()
 logger = structlog.get_logger(__name__)
+
+RATE_LIMIT_EXEMPT = ("/health", "/docs", "/redoc", "/openapi.json", "/internal/reset-due-tasks")
+
+
+async def _scheduler_loop() -> None:
+    """Resets due tasks every SCHEDULER_INTERVAL_SECONDS (replaces Celery Beat)."""
+    while True:
+        try:
+            async with get_db_context() as db:
+                result = await run_due_task_resets(db)
+            if result["reset"] or result["errors"]:
+                logger.info("scheduler.reset_due_tasks", **result)
+        except Exception:
+            logger.exception("scheduler.reset_due_tasks.failed")
+        await asyncio.sleep(settings.SCHEDULER_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -35,10 +54,25 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(lambda conn: Base.metadata.create_all(conn, checkfirst=True))
         logger.info("db.tables.created", env="development")
 
+    scheduler = asyncio.create_task(_scheduler_loop()) if settings.ENABLE_SCHEDULER else None
+
     yield
 
+    if scheduler:
+        scheduler.cancel()
+        with suppress(asyncio.CancelledError):
+            await scheduler
     await close_redis()
     logger.info("moxy.shutdown")
+
+
+def _client_ip(request: Request) -> str:
+    # Behind Render/Vercel the socket peer is the proxy; the real client is
+    # the first X-Forwarded-For entry
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def create_app() -> FastAPI:
@@ -52,44 +86,35 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def request_logging_middleware(request: Request, call_next):
+    async def rate_limit_and_log_middleware(request: Request, call_next):
         start = time.perf_counter()
-        response = await call_next(request)
-        duration_ms = (time.perf_counter() - start) * 1000
-        logger.info(
-            "http.request",
-            method=request.method,
-            path=request.url.path,
-            status=response.status_code,
-            duration_ms=round(duration_ms, 2),
-        )
-        return response
 
-    @app.middleware("http")
-    async def rate_limit_middleware(request: Request, call_next):
-        if request.url.path in ("/health", "/docs", "/redoc", "/openapi.json","/internal/reset-due-tasks"):
-            return await call_next(request)
-
-        client_ip = request.client.host if request.client else "unknown"
-        key = f"ratelimit:{client_ip}"
-
-        try:
-            redis = get_redis()
-            allowed = await check_rate_limit(
-                redis, key,
-                limit=settings.RATE_LIMIT_PER_MINUTE,
-                window_seconds=60,
-            )
+        if request.method != "OPTIONS" and request.url.path not in RATE_LIMIT_EXEMPT:
+            try:
+                allowed = await check_rate_limit(
+                    get_redis(),
+                    f"ratelimit:{_client_ip(request)}",
+                    limit=settings.RATE_LIMIT_PER_MINUTE,
+                    window_seconds=60,
+                )
+            except Exception:
+                allowed = True  # fail open if Redis is down
             if not allowed:
                 return JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     content={"detail": "Rate limit exceeded. Please slow down."},
                     headers={"Retry-After": "60"},
                 )
-        except Exception:
-            pass
 
-        return await call_next(request)
+        response = await call_next(request)
+        logger.info(
+            "http.request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=round((time.perf_counter() - start) * 1000, 2),
+        )
+        return response
 
     app.add_middleware(
         CORSMiddleware,
@@ -118,8 +143,7 @@ def create_app() -> FastAPI:
     @app.get("/health/redis", tags=["health"])
     async def redis_health():
         try:
-            redis = get_redis()
-            await redis.ping()
+            await get_redis().ping()
             return {"redis": "ok"}
         except Exception as e:
             return JSONResponse(status_code=503, content={"redis": "unavailable", "error": str(e)})
@@ -128,13 +152,12 @@ def create_app() -> FastAPI:
     async def trigger_reset_due_tasks(
         request: Request,
         db: AsyncSession = Depends(get_db),
-        redis=Depends(get_redis),
     ):
         """
-        Replaces Celery Beat in production, since Beat doesn't run on
-        Render's free tier. Point an external cron (e.g. cron-job.org,
-        same setup as the /health keep-warm ping) at this every minute
-        with the X-Internal-Secret header set to INTERNAL_CRON_SECRET.
+        Same reset the in-process scheduler runs every minute. Point an
+        external cron (e.g. cron-job.org) here with the X-Internal-Secret
+        header set to INTERNAL_CRON_SECRET — it also keeps Render's free
+        tier awake so the scheduler keeps running.
         """
         provided = request.headers.get("X-Internal-Secret", "")
         if not settings.INTERNAL_CRON_SECRET or not secrets.compare_digest(
@@ -142,8 +165,7 @@ def create_app() -> FastAPI:
         ):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or missing secret")
 
-        from app.services.task_service import run_due_task_resets
-        result = await run_due_task_resets(db, redis)
+        result = await run_due_task_resets(db)
         logger.info("internal.reset_due_tasks", **result)
         return result
 
@@ -152,10 +174,10 @@ def create_app() -> FastAPI:
     app.include_router(groups.router, prefix=api_prefix)
     app.include_router(tasks.router, prefix=api_prefix)
     app.include_router(notifications.router, prefix=api_prefix)
-
-    mount_socketio(app)
+    app.include_router(activity.router, prefix=api_prefix)
 
     return app
 
 
-app = create_app()
+fastapi_app = create_app()
+app = wrap_with_socketio(fastapi_app)

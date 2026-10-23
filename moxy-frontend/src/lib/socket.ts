@@ -3,13 +3,16 @@
 // Single instance — shared across the entire app via the useSocket hook.
 
 import { io, Socket } from "socket.io-client";
-import type { WsEvent, WsMemberPresence, WsTaskCompleted, WsTaskReset } from "@/types";
+import { supabase } from "@/lib/supabase";
+import type { WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset } from "@/types";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "http://localhost:8000";
+// Realtime is served by the API itself, so default to the API origin
+const WS_URL = import.meta.env.VITE_WS_URL ?? import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 // Typed event map for Socket.IO
 interface ServerToClientEvents {
   task_completed: (data: WsTaskCompleted) => void;
+  task_completion_undone: (data: WsTaskCompletionUndone) => void;
   task_reset: (data: WsTaskReset) => void;
   member_presence: (data: WsMemberPresence) => void;
   error: (data: { message: string }) => void;
@@ -26,27 +29,27 @@ export type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 let socket: TypedSocket | null = null;
 
 /**
- * Returns the shared Socket.IO socket instance.
- * Creates it on first call with the provided auth token.
- * Subsequent calls return the existing instance (even if token changes —
- * use reconnect() to force a new connection on re-login).
+ * Returns the shared Socket.IO socket, creating it on first call.
+ * The auth payload is fetched on every (re)connect, so reconnects after the
+ * hourly Supabase token refresh use the fresh token instead of a stale one.
  */
-export function getSocket(token: string): TypedSocket {
-  if (socket?.connected) return socket;
+export function getSocket(): TypedSocket {
+  if (socket) return socket;
 
   socket = io(WS_URL, {
     path: "/ws/socket.io",
-    auth: { token },
-    transports: ["websocket", "polling"],   // websocket first, fallback to polling
+    auth: (cb) => {
+      supabase.auth.getSession().then(({ data }) => cb({ token: data.session?.access_token }));
+    },
+    // WebSocket only: long-polling needs sticky sessions across API workers
+    transports: ["websocket"],
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 10_000,
     timeout: 10_000,
-    forceNew: false,
   }) as TypedSocket;
 
-  // Global error handler — individual hooks add their own listeners too
   socket.on("connect_error", (err) => {
     console.error("[socket] connection error:", err.message);
   });
@@ -59,9 +62,4 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
   }
-}
-
-export function reconnectSocket(token: string): TypedSocket {
-  disconnectSocket();
-  return getSocket(token);
 }

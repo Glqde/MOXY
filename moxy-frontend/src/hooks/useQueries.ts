@@ -7,7 +7,7 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from "@tanstack/react-query";
-import { groupApi, notificationApi, taskApi, userApi } from "@/api/services";
+import { activityApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
 import { useToastStore } from "@/store";
 import type { TaskRead } from "@/types";
 
@@ -23,6 +23,8 @@ export const QK = {
   notifications: ["notifications"] as const,
   unreadCount: ["notifications", "unread"] as const,
   friends: ["friends"] as const,
+  activityAll: ["activity"] as const,
+  activity: (groupId?: string) => ["activity", groupId ?? "all"] as const,
 };
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -166,6 +168,7 @@ export function useCompleteTask(groupId: string) {
     // ── Settle: sync with server reality ──────────────────────────────────
     onSettled: () => {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
+      qc.invalidateQueries({ queryKey: QK.activityAll });
     },
 
     onSuccess: (completion) => {
@@ -219,6 +222,16 @@ export function useEmergencyReset(groupId: string) {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
       addToast({ emoji: "🔄", title: "Task reset" });
     },
+  });
+}
+
+// ─── Activity ─────────────────────────────────────────────────────────────────
+
+export function useActivity(groupId?: string) {
+  return useQuery({
+    queryKey: QK.activity(groupId),
+    queryFn: () => activityApi.list({ group_id: groupId, limit: 100 }),
+    staleTime: 15_000,
   });
 }
 

@@ -1,9 +1,8 @@
 // src/pages/ActivityPage.tsx
-import { useEffect, useRef, useState } from "react";
-import { useGroups, useTasks } from "@/hooks/useQueries";
-import { useAuthStore } from "@/store";
+import { useMemo, useState } from "react";
+import { useActivity, useGroups } from "@/hooks/useQueries";
 import { useColors } from "@/lib/theme";
-import type { TaskRead, GroupRead } from "@/types";
+import type { ActivityLogRead, GroupRead } from "@/types";
 
 interface ActivityEntry {
   id: string;
@@ -84,64 +83,48 @@ function ActivityRow({ entry, isLast }: { entry: ActivityEntry; isLast: boolean 
   );
 }
 
-function buildActivity(tasks: TaskRead[], group: GroupRead): ActivityEntry[] {
-  const entries: ActivityEntry[] = [];
-  tasks.forEach((t) => {
-    if (t.latest_completion) {
-      const c = t.latest_completion;
-      const name = c.completed_by_user.full_name;
-      entries.push({
-        id: c.id,
-        type: "completion",
-        emoji: t.emoji,
-        actor: name,
-        actorInitials: name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
-        action: "completed",
-        taskTitle: t.title,
-        groupName: group.name,
-        groupIcon: group.icon,
-        groupColor: group.color,
-        time: new Date(c.completed_at),
-      });
-    }
-  });
-  return entries;
+const ACTIONS: Record<string, string> = {
+  task_completed: "completed",
+  task_completion_undone: "undid",
+};
+
+function toEntry(log: ActivityLogRead, group: GroupRead | undefined): ActivityEntry | null {
+  const action = ACTIONS[log.event_type];
+  if (!action || !group) return null;
+  const name = log.user?.full_name ?? "A member";
+  const data = (log.event_data ?? {}) as { task_title?: string; task_emoji?: string };
+  return {
+    id: log.id,
+    type: "completion",
+    emoji: data.task_emoji ?? "✅",
+    actor: name,
+    actorInitials: name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(),
+    action,
+    taskTitle: data.task_title ?? "a task",
+    groupName: group.name,
+    groupIcon: group.icon,
+    groupColor: group.color,
+    time: new Date(log.occurred_at),
+  };
 }
 
 export function ActivityPage() {
   const C = useColors();
-  const { user } = useAuthStore();
   const { data: groups = [] } = useGroups();
-  const [allActivity, setAllActivity] = useState<ActivityEntry[]>([]);
-
-  const { data: g1tasks = [] } = useTasks(groups[0]?.id ?? "");
-  const { data: g2tasks = [] } = useTasks(groups[1]?.id ?? "");
-  const { data: g3tasks = [] } = useTasks(groups[2]?.id ?? "");
-
-  useEffect(() => {
-    const allTasks: Array<{ tasks: TaskRead[]; group: GroupRead }> = [
-      { tasks: g1tasks, group: groups[0] },
-      { tasks: g2tasks, group: groups[1] },
-      { tasks: g3tasks, group: groups[2] },
-    ].filter((x) => x.group);
-
-    const entries = allTasks.flatMap(({ tasks, group }) => buildActivity(tasks, group));
-    entries.sort((a, b) => b.time.getTime() - a.time.getTime());
-    setAllActivity(entries);
-  }, [g1tasks, g2tasks, g3tasks, groups]);
-
   const [filter, setFilter] = useState<string>("all");
+  const { data: logs = [] } = useActivity(filter === "all" ? undefined : filter);
+
+  const filtered = useMemo(() => {
+    const byId = new Map(groups.map((g) => [g.id, g]));
+    return logs
+      .map((log) => toEntry(log, byId.get(log.group_id)))
+      .filter((e): e is ActivityEntry => e !== null);
+  }, [logs, groups]);
+
   const filterOptions = [
     { id: "all", label: "All" },
     ...groups.map((g) => ({ id: g.id, label: `${g.icon} ${g.name}` })),
   ];
-
-  const filtered = filter === "all"
-    ? allActivity
-    : allActivity.filter((e) => {
-        const group = groups.find((g) => g.name === e.groupName);
-        return group?.id === filter;
-      });
 
   return (
     <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>

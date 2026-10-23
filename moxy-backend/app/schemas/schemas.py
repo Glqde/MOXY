@@ -262,6 +262,7 @@ class ActivityLogRead(BaseModel):
     id: uuid.UUID
     group_id: uuid.UUID
     user_id: uuid.UUID
+    user: Optional[UserPublic] = None
     task_id: Optional[uuid.UUID]
     event_type: str
     event_data: Optional[Dict[str, Any]]

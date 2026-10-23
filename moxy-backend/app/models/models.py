@@ -83,9 +83,7 @@ class NotificationType(str, PyEnum):
 class User(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(512))
@@ -209,7 +207,7 @@ class Task(UUIDMixin, TimestampMixin, Base):
     """
     __tablename__ = "tasks"
 
-    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -224,7 +222,7 @@ class Task(UUIDMixin, TimestampMixin, Base):
     # Assigned members (optional — empty means anyone can complete)
     assigned_member_ids: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
 
-    # Current period state — reset by Celery after each recurrence
+    # Current period state — reset by the scheduler after each recurrence
     current_period_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     current_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     is_completed_this_period: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -237,14 +235,14 @@ class Task(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         Index("ix_tasks_group_active", "group_id", "is_active"),
-        Index("ix_tasks_period", "current_period_end"),  # Celery query to find tasks to reset
+        Index("ix_tasks_period", "current_period_end"),
     )
 
 
 class RecurrenceRule(UUIDMixin, TimestampMixin, Base):
     """
     Defines when a task resets.
-    Celery Beat queries tasks where next_reset_at <= now() and resets them.
+    The scheduler resets tasks whose next_reset_at <= now().
     """
     __tablename__ = "recurrence_rules"
 
@@ -276,7 +274,7 @@ class TaskCompletion(UUIDMixin, Base):
     """
     __tablename__ = "task_completions"
 
-    task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
     completed_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     completed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)  # which recurrence window
@@ -299,7 +297,7 @@ class Notification(UUIDMixin, TimestampMixin, Base):
     """Per-user in-app notification inbox."""
     __tablename__ = "notifications"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     type: Mapped[NotificationType] = mapped_column(String(40), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     body: Mapped[Optional[str]] = mapped_column(String(500))
@@ -313,7 +311,7 @@ class Notification(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         Index("ix_notifications_user_unread", "user_id", "is_read"),
-        Index("ix_notifications_created", "created_at"),
+        Index("ix_notifications_user_created", "user_id", "created_at"),  # inbox listing
     )
 
 
@@ -326,12 +324,14 @@ class ActivityLog(UUIDMixin, Base):
     """
     __tablename__ = "activity_logs"
 
-    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     task_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"))
     event_type: Mapped[str] = mapped_column(String(60), nullable=False)   # "task_completed", "member_joined", etc.
     event_data: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+
+    user: Mapped["User"] = relationship("User", lazy="raise")
 
     __table_args__ = (
         Index("ix_activity_group_time", "group_id", "occurred_at"),

@@ -4,7 +4,7 @@ app/api/v1/routes/notifications.py
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
@@ -15,7 +15,7 @@ from app.schemas.schemas import NotificationMarkRead, NotificationRead
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-@router.get("/", response_model=List[NotificationRead])
+@router.get("", response_model=List[NotificationRead])
 async def list_notifications(
     unread_only: bool = Query(False),
     limit: int = Query(50, le=100),
@@ -36,7 +36,6 @@ async def unread_count(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    from sqlalchemy import func
     result = await db.execute(
         select(func.count()).where(
             and_(Notification.user_id == current_user.id, Notification.is_read == False)
@@ -70,6 +69,6 @@ async def mark_all_read(
 ):
     await db.execute(
         update(Notification)
-        .where(Notification.user_id == current_user.id)
+        .where(Notification.user_id == current_user.id, Notification.is_read == False)  # noqa: E712
         .values(is_read=True)
     )

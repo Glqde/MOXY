@@ -1,6 +1,7 @@
 """
 app/api/v1/routes/tasks.py
 Task CRUD + completion endpoint.
+Every task lookup is scoped to the {group_id} in the path.
 """
 import uuid
 from typing import List
@@ -9,9 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
-from app.core.redis import get_redis
 from app.db.session import get_db
-from app.models.models import User
+from app.models.models import GroupMember, User
 from app.schemas.schemas import TaskCreate, TaskCompleteRequest, TaskCompletionRead, TaskRead, TaskUpdate
 from app.services.group_service import GroupService
 from app.services.task_service import TaskService
@@ -19,26 +19,30 @@ from app.services.task_service import TaskService
 router = APIRouter(prefix="/groups/{group_id}/tasks", tags=["tasks"])
 
 
-async def _require_member(group_id: uuid.UUID, current_user: User, db: AsyncSession):
-    group_svc = GroupService(db)
-    membership = await group_svc.get_membership(group_id, current_user.id)
+async def _require_member(group_id: uuid.UUID, current_user: User, db: AsyncSession) -> GroupMember:
+    membership = await GroupService(db).get_membership(group_id, current_user.id)
     if not membership:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not a member of this group")
     return membership
 
 
-@router.get("/", response_model=List[TaskRead])
+async def _require_admin(group_id: uuid.UUID, current_user: User, db: AsyncSession, action: str) -> None:
+    membership = await _require_member(group_id, current_user, db)
+    if membership.role != "admin":
+        raise HTTPException(403, f"Only admins can {action}")
+
+
+@router.get("", response_model=List[TaskRead])
 async def list_tasks(
     group_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     await _require_member(group_id, current_user, db)
-    svc = TaskService(db)
-    return await svc.get_group_tasks(group_id)
+    return await TaskService(db).get_group_tasks(group_id)
 
 
-@router.post("/", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
 async def create_task(
     group_id: uuid.UUID,
     payload: TaskCreate,
@@ -46,8 +50,7 @@ async def create_task(
     current_user: User = Depends(get_current_user),
 ):
     await _require_member(group_id, current_user, db)
-    svc = TaskService(db)
-    return await svc.create(group_id=group_id, created_by=current_user.id, data=payload)
+    return await TaskService(db).create(group_id=group_id, created_by=current_user.id, data=payload)
 
 
 @router.get("/{task_id}", response_model=TaskRead)
@@ -58,9 +61,8 @@ async def get_task(
     current_user: User = Depends(get_current_user),
 ):
     await _require_member(group_id, current_user, db)
-    svc = TaskService(db)
-    task = await svc.get_by_id(task_id, load_relations=True)
-    if not task or task.group_id != group_id:
+    task = await TaskService(db).get_for_read(task_id, group_id)
+    if not task:
         raise HTTPException(404, "Task not found")
     return task
 
@@ -73,14 +75,11 @@ async def update_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    membership = await _require_member(group_id, current_user, db)
-    if membership.role != "admin":
-        raise HTTPException(403, "Only admins can edit tasks")
-    svc = TaskService(db)
-    task = await svc.update(task_id, payload)
+    await _require_admin(group_id, current_user, db, "edit tasks")
+    task = await TaskService(db).update(task_id, group_id, payload)
     if not task:
         raise HTTPException(404, "Task not found")
-    return await svc.get_by_id(task.id, load_relations=True)
+    return task
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -90,11 +89,8 @@ async def delete_task(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    membership = await _require_member(group_id, current_user, db)
-    if membership.role != "admin":
-        raise HTTPException(403, "Only admins can delete tasks")
-    svc = TaskService(db)
-    if not await svc.delete(task_id):
+    await _require_admin(group_id, current_user, db, "delete tasks")
+    if not await TaskService(db).delete(task_id, group_id):
         raise HTTPException(404, "Task not found")
 
 
@@ -105,25 +101,29 @@ async def complete_task(
     payload: TaskCompleteRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    redis=Depends(get_redis),
 ):
-    await _require_member(group_id, current_user, db)
-    svc = TaskService(db=db, redis=redis)
-    completion = await svc.complete_task(
+    # complete_task checks membership itself (after locking the task row)
+    return await TaskService(db).complete_task(
         task_id=task_id,
-        user_id=current_user.id,
+        user=current_user,
+        group_id=group_id,
         note=payload.note,
     )
-    # Reload with user relation so FastAPI can serialize it
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-    from app.models.models import TaskCompletion
-    result = await db.execute(
-        select(TaskCompletion)
-        .where(TaskCompletion.id == completion.id)
-        .options(selectinload(TaskCompletion.completed_by_user))
+
+
+@router.delete("/{task_id}/complete", response_model=TaskRead)
+async def undo_complete_task(
+    group_id: uuid.UUID,
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Undo the current period's completion. Only the completer can undo it."""
+    return await TaskService(db).undo_complete_task(
+        task_id=task_id,
+        user=current_user,
+        group_id=group_id,
     )
-    return result.scalar_one()
 
 
 @router.post("/{task_id}/reset", response_model=TaskRead)
@@ -132,27 +132,10 @@ async def emergency_reset_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    redis=Depends(get_redis),
 ):
     """Admin override: manually reset a task (vacation mode, error recovery)."""
-    membership = await _require_member(group_id, current_user, db)
-    if membership.role != "admin":
-        raise HTTPException(403, "Only admins can force-reset tasks")
-    svc = TaskService(db=db, redis=redis)
-    return await svc.reset_task(task_id)
-
-@router.delete("/{task_id}/complete", response_model=TaskRead)
-async def undo_complete_task(
-    group_id: uuid.UUID,
-    task_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    redis=Depends(get_redis),
-):
-    """Undo the current period's completion. Only the completer can undo it."""
-    await _require_member(group_id, current_user, db)
-    svc = TaskService(db=db, redis=redis)
-    return await svc.undo_complete_task(
-        task_id=task_id,
-        user_id=current_user.id,
-    )
+    await _require_admin(group_id, current_user, db, "force-reset tasks")
+    task = await TaskService(db).reset_task(task_id, group_id)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    return task

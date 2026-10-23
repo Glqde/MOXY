@@ -2,69 +2,113 @@
 app/services/task_service.py
 Task domain logic — the most critical service in MOXY.
 
-The complete_task() method is where the distributed locking, race condition
-prevention, and realtime broadcast all come together.
-
 Completion guarantee flow:
-  1. Redis SETNX lock acquired (fast path — prevents double-clicks)
+  1. SELECT ... FOR UPDATE on the task row — concurrent completions of the
+     same task queue up here; the loser sees is_completed_this_period and 409s
   2. DB unique constraint on (task_id, period_start) — last line of defense
-  3. On success → broadcast realtime event to all group members
-  4. Enqueue notification delivery to all members via Celery
-  5. Release Redis lock in finally block
+  3. Activity log + notifications written in the same transaction
+  4. Commit, THEN broadcast the realtime event, so clients that refetch on
+     the event always see the committed state
 """
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
-from sqlalchemy import and_, select
+import structlog
+from fastapi import HTTPException
+from sqlalchemy import and_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.redis import TaskLock, publish_group_event
-from app.models.models import ActivityLog, Group, GroupMember, Notification, NotificationType, Task, TaskCompletion
+from app.core.realtime import emit_group_event
+from app.models.models import (
+    ActivityLog,
+    GroupMember,
+    Notification,
+    NotificationType,
+    RecurrenceRule,
+    Task,
+    TaskCompletion,
+    User,
+)
 from app.schemas.schemas import TaskCreate, TaskUpdate
-from app.utils.recurrence import calculate_period, calculate_next_reset
+from app.utils.recurrence import calculate_next_reset, calculate_period
+
+logger = structlog.get_logger(__name__)
+
+# Upper bound on tasks reset per scheduler tick; the rest go next tick
+RESET_BATCH_SIZE = 500
 
 
 class TaskService:
-    def __init__(self, db: AsyncSession, redis=None):
+    def __init__(self, db: AsyncSession):
         self.db = db
-        self.redis = redis
 
     # ── Read ──────────────────────────────────────────────────────────────────
 
-    async def get_by_id(self, task_id: uuid.UUID, load_relations: bool = False) -> Optional[Task]:
-        q = select(Task).where(Task.id == task_id)
-        if load_relations:
-            q = q.options(
-                selectinload(Task.recurrence_rule),
-                selectinload(Task.completions).selectinload(TaskCompletion.completed_by_user),
-            )
+    def _task_query(self, task_id: uuid.UUID, group_id: Optional[uuid.UUID]):
+        q = select(Task).where(Task.id == task_id).options(selectinload(Task.recurrence_rule))
+        if group_id is not None:
+            # Scoping by group in SQL is what stops an admin of one group
+            # from touching another group's tasks by ID
+            q = q.where(Task.group_id == group_id)
+        return q
+
+    async def get_by_id(
+        self,
+        task_id: uuid.UUID,
+        group_id: Optional[uuid.UUID] = None,
+        *,
+        for_update: bool = False,
+    ) -> Optional[Task]:
+        q = self._task_query(task_id, group_id)
+        if for_update:
+            q = q.with_for_update(of=Task).execution_options(populate_existing=True)
         result = await self.db.execute(q)
         return result.scalar_one_or_none()
+
+    async def get_for_read(self, task_id: uuid.UUID, group_id: uuid.UUID) -> Optional[Task]:
+        task = await self.get_by_id(task_id, group_id)
+        if task:
+            await self._attach_latest_completions([task])
+        return task
 
     async def get_group_tasks(self, group_id: uuid.UUID) -> List[Task]:
         result = await self.db.execute(
             select(Task)
-            .where(and_(Task.group_id == group_id, Task.is_active == True))
-            .options(
-                selectinload(Task.recurrence_rule),
-                selectinload(Task.completions).selectinload(TaskCompletion.completed_by_user),
-            )
+            .where(and_(Task.group_id == group_id, Task.is_active == True))  # noqa: E712
+            .options(selectinload(Task.recurrence_rule))
             .order_by(Task.is_pinned.desc(), Task.created_at.asc())
         )
-        return list(result.scalars().all())
+        tasks = list(result.scalars().all())
+        await self._attach_latest_completions(tasks)
+        return tasks
 
-    async def get_latest_completion(self, task_id: uuid.UUID) -> Optional[TaskCompletion]:
+    async def _attach_latest_completions(self, tasks: Iterable[Task]) -> None:
+        """
+        Sets task.latest_completion for the current period in ONE query.
+        The (task_id, period_start) unique index means at most one row per task,
+        so this never scans a task's completion history.
+        """
+        tasks = list(tasks)
+        for t in tasks:
+            t.latest_completion = None
+        keys = [
+            (t.id, t.current_period_start)
+            for t in tasks
+            if t.is_completed_this_period and t.current_period_start
+        ]
+        if not keys:
+            return
         result = await self.db.execute(
             select(TaskCompletion)
-            .where(TaskCompletion.task_id == task_id)
+            .where(tuple_(TaskCompletion.task_id, TaskCompletion.period_start).in_(keys))
             .options(selectinload(TaskCompletion.completed_by_user))
-            .order_by(TaskCompletion.completed_at.desc())
-            .limit(1)
         )
-        return result.scalar_one_or_none()
+        by_task = {c.task_id: c for c in result.scalars().all()}
+        for t in tasks:
+            t.latest_completion = by_task.get(t.id)
 
     # ── Create / Update / Delete ───────────────────────────────────────────────
 
@@ -72,6 +116,12 @@ class TaskService:
         period_start, period_end = calculate_period(
             data.recurrence.recurrence_type,
             data.recurrence.interval_value,
+        )
+        next_reset = calculate_next_reset(
+            data.recurrence.recurrence_type,
+            data.recurrence.interval_value,
+            data.recurrence.cron_expression,
+            data.recurrence.timezone,
         )
 
         task = Task(
@@ -85,40 +135,38 @@ class TaskService:
             tags=data.tags,
             assigned_member_ids=[str(uid) for uid in data.assigned_member_ids],
             current_period_start=period_start,
-            current_period_end=period_end,
+            current_period_end=period_end or next_reset,
+            recurrence_rule=RecurrenceRule(
+                recurrence_type=data.recurrence.recurrence_type,
+                interval_value=data.recurrence.interval_value,
+                cron_expression=data.recurrence.cron_expression,
+                timezone=data.recurrence.timezone,
+                cooldown_minutes=data.recurrence.cooldown_minutes,
+                next_reset_at=next_reset,
+            ),
         )
         self.db.add(task)
         await self.db.flush()
+        task.latest_completion = None
+        return task
 
-        from app.models.models import RecurrenceRule
-        rule = RecurrenceRule(
-            task_id=task.id,
-            recurrence_type=data.recurrence.recurrence_type,
-            interval_value=data.recurrence.interval_value,
-            cron_expression=data.recurrence.cron_expression,
-            timezone=data.recurrence.timezone,
-            cooldown_minutes=data.recurrence.cooldown_minutes,
-            next_reset_at=period_end,
-        )
-        self.db.add(rule)
-        await self.db.flush()
-
-        # Reload with relations so FastAPI can serialize the response
-        return await self.get_by_id(task.id, load_relations=True)
-
-    async def update(self, task_id: uuid.UUID, data: TaskUpdate) -> Optional[Task]:
-        task = await self.get_by_id(task_id)
-        if not task:
+    async def update(self, task_id: uuid.UUID, group_id: uuid.UUID, data: TaskUpdate) -> Optional[Task]:
+        task = await self.get_by_id(task_id, group_id)
+        if not task or not task.is_active:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        if "assigned_member_ids" in update_data and update_data["assigned_member_ids"] is not None:
+            # JSONB can't hold UUID objects
+            update_data["assigned_member_ids"] = [str(u) for u in update_data["assigned_member_ids"]]
         for key, value in update_data.items():
             setattr(task, key, value)
         await self.db.flush()
+        await self._attach_latest_completions([task])
         return task
 
-    async def delete(self, task_id: uuid.UUID) -> bool:
-        task = await self.get_by_id(task_id)
-        if not task:
+    async def delete(self, task_id: uuid.UUID, group_id: uuid.UUID) -> bool:
+        task = await self.get_by_id(task_id, group_id)
+        if not task or not task.is_active:
             return False
         task.is_active = False  # soft delete
         await self.db.flush()
@@ -129,19 +177,15 @@ class TaskService:
     async def complete_task(
         self,
         task_id: uuid.UUID,
-        user_id: uuid.UUID,
+        user: User,
+        group_id: Optional[uuid.UUID] = None,
         note: Optional[str] = None,
     ) -> TaskCompletion:
-        from fastapi import HTTPException
-
-        # Force fresh read from DB, bypassing identity map cache
-        self.db.expire_all()
-
-        task = await self.get_by_id(task_id, load_relations=True)
+        task = await self.get_by_id(task_id, group_id, for_update=True)
         if not task or not task.is_active:
             raise HTTPException(404, "Task not found")
 
-        membership = await self._get_membership(task.group_id, user_id)
+        membership = await self._get_membership(task.group_id, user.id)
         if not membership:
             raise HTTPException(403, "You are not a member of this group")
 
@@ -149,241 +193,149 @@ class TaskService:
             raise HTTPException(409, "This task was already completed for the current period")
 
         period_start = task.current_period_start or datetime.now(timezone.utc)
+        completion = await self._do_complete(task, user, period_start, note)
+        await self.db.commit()
 
-        if not self.redis:
-            return await self._do_complete(task, user_id, period_start, note)
-
-        # IMPORTANT: only lock ACQUISITION is allowed to fail-soft here.
-        # _do_complete() must run AT MOST ONCE per request — calling it twice
-        # inserts two TaskCompletion rows for the same (task_id, period_start)
-        # in the same transaction and self-collides on the unique constraint,
-        # rolling back the legitimate completion along with it.
-        lock = TaskLock(self.redis, str(task_id))
-        try:
-            acquired = await lock.__aenter__()
-        except Exception:
-            # Redis itself unreachable — proceed without the lock.
-            # The DB unique constraint is still the last line of defense.
-            acquired = None
-
-        if acquired is False:
-            await lock.__aexit__(None, None, None)
-            raise HTTPException(
-                409,
-                "Another member is completing this task right now. Try again in a moment."
-            )
-
-        try:
-            return await self._do_complete(task, user_id, period_start, note)
-        finally:
-            if acquired:
-                try:
-                    await lock.__aexit__(None, None, None)
-                except Exception:
-                    pass
+        await emit_group_event(
+            task.group_id,
+            {
+                "event": "task_completed",
+                "task_id": str(task.id),
+                "task_title": task.title,
+                "task_emoji": task.emoji,
+                "completed_by_id": str(user.id),
+                "completed_by_name": user.full_name,
+                "completed_at": completion.completed_at.isoformat(),
+                "group_id": str(task.group_id),
+            },
+        )
+        return completion
 
     async def _do_complete(
         self,
         task: Task,
-        user_id: uuid.UUID,
+        user: User,
         period_start: datetime,
         note: Optional[str],
     ) -> TaskCompletion:
-        """
-        Inner completion logic — runs while Redis lock is held.
-        DB unique constraint on (task_id, period_start) is the last guard.
-        """
-        from fastapi import HTTPException
-
+        """Writes the completion, activity log and notifications (no commit)."""
         try:
-            # ── STEP 2: Insert completion record ───────────────────────────
             completion = TaskCompletion(
                 task_id=task.id,
-                completed_by=user_id,
+                completed_by=user.id,
+                completed_at=datetime.now(timezone.utc),
                 period_start=period_start,
                 note=note,
             )
+            completion.completed_by_user = user
             self.db.add(completion)
 
-            # Update task state
             task.is_completed_this_period = True
             task.times_completed_total += 1
             task.completion_streak += 1
 
             await self.db.flush()
-
         except IntegrityError:
-            # ── STEP 3: DB constraint fired — duplicate completion attempt ──
-            # TEMP DEBUG: show the real underlying error
+            # DB constraint fired — a duplicate completion slipped past the row lock
             await self.db.rollback()
             raise HTTPException(409, "This task was already completed for the current period")
 
-        # ── STEP 4: Log to activity feed ───────────────────────────────────
-        log = ActivityLog(
+        self.db.add(ActivityLog(
             group_id=task.group_id,
-            user_id=user_id,
+            user_id=user.id,
             task_id=task.id,
             event_type="task_completed",
             event_data={"task_title": task.title, "task_emoji": task.emoji},
-        )
-        self.db.add(log)
+        ))
 
-        # ── STEP 5: Create notifications for all group members ─────────────
-        try:
-            member_ids = await self._get_group_member_ids(task.group_id)
-            from app.workers.tasks import send_completion_notifications
-            send_completion_notifications.delay(
-                task_id=str(task.id),
-                task_title=task.title,
-                task_emoji=task.emoji,
-                completed_by_id=str(user_id),
-                group_id=str(task.group_id),
-                member_ids=[str(m) for m in member_ids],
+        recipients = await self._notifiable_member_ids(task.group_id, exclude=user.id)
+        self.db.add_all([
+            Notification(
+                user_id=member_id,
+                type=NotificationType.task_completed,
+                title=f"{task.emoji} {task.title} completed",
+                body=f"{user.full_name} completed this task",
+                actor_id=user.id,
+                group_id=task.group_id,
+                task_id=task.id,
+                extra_data={"task_emoji": task.emoji, "completer_name": user.full_name},
             )
-        except Exception:
-            import logging
-            logging.getLogger(__name__).exception(
-                "Failed to enqueue completion notifications for task %s", task.id
-            )
-
-        # ── STEP 6: Publish realtime event via Redis Pub/Sub ───────────────
-        # This fires BEFORE commit — if commit fails, clients get a transient
-        # "ghost" event. Acceptable tradeoff for low latency; clients re-sync
-        # on reconnect. For strong consistency, move publish to after commit.
-        if self.redis:
-            try:
-                from app.services.user_service import UserService
-                user_service = UserService(self.db)
-                completer = await user_service.get_by_id(user_id)
-
-                await publish_group_event(
-                    self.redis,
-                    str(task.group_id),
-                    {
-                        "event": "task_completed",
-                        "task_id": str(task.id),
-                        "task_title": task.title,
-                        "task_emoji": task.emoji,
-                        "completed_by_id": str(user_id),
-                        "completed_by_name": completer.full_name if completer else "A member",
-                        "completed_at": datetime.now(timezone.utc).isoformat(),
-                        "group_id": str(task.group_id),
-                    },
-                )
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception(
-                    "Failed to publish task_completed event for task %s", task.id
-                )
-
+            for member_id in recipients
+        ])
         return completion
-    
+
     async def undo_complete_task(
         self,
         task_id: uuid.UUID,
-        user_id: uuid.UUID,
+        user: User,
+        group_id: Optional[uuid.UUID] = None,
     ) -> Task:
         """
-        Reverses the most recent completion for the current period.
-        Only the user who completed it can undo it, and only within the
-        same period (can't undo after the task has already reset).
+        Reverses the current period's completion. Only the user who completed
+        it can undo it, and only before the task resets.
         """
-        from fastapi import HTTPException
-
-        self.db.expire_all()
-
-        task = await self.get_by_id(task_id, load_relations=True)
+        task = await self.get_by_id(task_id, group_id, for_update=True)
         if not task or not task.is_active:
             raise HTTPException(404, "Task not found")
 
-        membership = await self._get_membership(task.group_id, user_id)
+        membership = await self._get_membership(task.group_id, user.id)
         if not membership:
             raise HTTPException(403, "You are not a member of this group")
 
         if not task.is_completed_this_period:
             raise HTTPException(409, "This task has not been completed yet")
 
-        # Find the most recent completion for the current period
-        from sqlalchemy import select
         result = await self.db.execute(
-            select(TaskCompletion)
-            .where(
-                TaskCompletion.task_id == task_id,
+            select(TaskCompletion).where(
+                TaskCompletion.task_id == task.id,
                 TaskCompletion.period_start == task.current_period_start,
             )
-            .order_by(TaskCompletion.completed_at.desc())
-            .limit(1)
         )
         completion = result.scalar_one_or_none()
-
         if not completion:
             raise HTTPException(404, "No completion record found for this period")
-
-        if completion.completed_by != user_id:
+        if completion.completed_by != user.id:
             raise HTTPException(403, "You can only undo your own completions")
 
-        # Reverse the completion
         await self.db.delete(completion)
         task.is_completed_this_period = False
         task.times_completed_total = max(0, task.times_completed_total - 1)
         task.completion_streak = max(0, task.completion_streak - 1)
-        await self.db.flush()
 
-        # Log to activity feed
-        log = ActivityLog(
+        self.db.add(ActivityLog(
             group_id=task.group_id,
-            user_id=user_id,
+            user_id=user.id,
             task_id=task.id,
             event_type="task_completion_undone",
             event_data={"task_title": task.title, "task_emoji": task.emoji},
+        ))
+        await self.db.commit()
+
+        await emit_group_event(
+            task.group_id,
+            {
+                "event": "task_completion_undone",
+                "task_id": str(task.id),
+                "task_title": task.title,
+                "task_emoji": task.emoji,
+                "undone_by_id": str(user.id),
+                "undone_by_name": user.full_name,
+                "group_id": str(task.group_id),
+            },
         )
-        self.db.add(log)
+        task.latest_completion = None
+        return task
 
-        # Broadcast realtime event — best effort
-        if self.redis:
-            try:
-                from app.services.user_service import UserService
-                user_service = UserService(self.db)
-                undoer = await user_service.get_by_id(user_id)
+    # ── Resets ────────────────────────────────────────────────────────────────
 
-                await publish_group_event(
-                    self.redis,
-                    str(task.group_id),
-                    {
-                        "event": "task_completion_undone",
-                        "task_id": str(task.id),
-                        "task_title": task.title,
-                        "task_emoji": task.emoji,
-                        "undone_by_id": str(user_id),
-                        "undone_by_name": undoer.full_name if undoer else "A member",
-                        "group_id": str(task.group_id),
-                    },
-                )
-            except Exception:
-                import logging
-                logging.getLogger(__name__).exception(
-                    "Failed to publish task_completion_undone event for task %s", task.id
-                )
-
-        return await self.get_by_id(task_id, load_relations=True)
-
-    async def reset_task(self, task_id: uuid.UUID) -> Task:
+    @staticmethod
+    def apply_reset(task: Task) -> dict:
         """
-        Called by Celery when a recurrence period ends.
-        Resets the task to pending state and calculates the next period.
+        Resets a loaded task (with recurrence_rule) to pending for its next
+        period. Pure state change — returns the event to emit after commit.
         """
-        task = await self.get_by_id(task_id, load_relations=True)
-        if not task or not task.recurrence_rule:
-            return task
-
         rule = task.recurrence_rule
-        was_completed = task.is_completed_this_period
-
-        # Calculate next period
-        next_start, next_end = calculate_period(
-            rule.recurrence_type,
-            rule.interval_value,
-        )
+        next_start, next_end = calculate_period(rule.recurrence_type, rule.interval_value)
         next_reset = calculate_next_reset(
             rule.recurrence_type,
             rule.interval_value,
@@ -391,31 +343,31 @@ class TaskService:
             rule.timezone,
         )
 
-        # Reset task state
+        if not task.is_completed_this_period:
+            task.completion_streak = 0  # streak broken — missed this period
         task.is_completed_this_period = False
         task.current_period_start = next_start
-        task.current_period_end = next_end
-        if not was_completed:
-            task.completion_streak = 0  # streak broken — missed this period
-
+        task.current_period_end = next_end or next_reset
         rule.next_reset_at = next_reset
-        await self.db.flush()
 
-        # Broadcast reset to group
-        if self.redis:
-            await publish_group_event(
-                self.redis,
-                str(task.group_id),
-                {
-                    "event": "task_reset",
-                    "task_id": str(task.id),
-                    "task_title": task.title,
-                    "task_emoji": task.emoji,
-                    "next_due": next_end.isoformat() if next_end else None,
-                    "group_id": str(task.group_id),
-                },
-            )
+        return {
+            "event": "task_reset",
+            "task_id": str(task.id),
+            "task_title": task.title,
+            "task_emoji": task.emoji,
+            "next_due": task.current_period_end.isoformat() if task.current_period_end else None,
+            "group_id": str(task.group_id),
+        }
 
+    async def reset_task(self, task_id: uuid.UUID, group_id: uuid.UUID) -> Optional[Task]:
+        """Admin override: force a task into a fresh period right now."""
+        task = await self.get_by_id(task_id, group_id, for_update=True)
+        if not task or not task.is_active or not task.recurrence_rule:
+            return None
+        event = self.apply_reset(task)
+        await self.db.commit()
+        await emit_group_event(task.group_id, event)
+        task.latest_completion = None
         return task
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -431,49 +383,48 @@ class TaskService:
         )
         return result.scalar_one_or_none()
 
-    async def _get_group_member_ids(self, group_id: uuid.UUID) -> List[uuid.UUID]:
+    async def _notifiable_member_ids(self, group_id: uuid.UUID, exclude: uuid.UUID) -> List[uuid.UUID]:
         result = await self.db.execute(
-            select(GroupMember.user_id).where(GroupMember.group_id == group_id)
+            select(GroupMember.user_id).where(
+                GroupMember.group_id == group_id,
+                GroupMember.user_id != exclude,
+                GroupMember.notification_muted == False,  # noqa: E712
+            )
         )
         return list(result.scalars().all())
 
-    async def verify_group_membership(
-        self, task_id: uuid.UUID, user_id: uuid.UUID
-    ) -> GroupMember:
-        """Raises 403 if user is not a member of the task's group."""
-        from fastapi import HTTPException
 
-        task = await self.get_by_id(task_id)
-        if not task:
-            raise HTTPException(404, "Task not found")
+async def run_due_task_resets(db: AsyncSession) -> dict:
+    """
+    Resets every active task whose period has ended. Shared by the in-process
+    scheduler and POST /internal/reset-due-tasks.
 
-        membership = await self._get_membership(task.group_id, user_id)
-        if not membership:
-            raise HTTPException(403, "You are not a member of this group")
+    FOR UPDATE SKIP LOCKED lets several workers (or the scheduler and the
+    external cron) run this at the same moment without resetting a task twice.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(Task)
+        .join(RecurrenceRule, RecurrenceRule.task_id == Task.id)
+        .where(RecurrenceRule.next_reset_at <= now, Task.is_active == True)  # noqa: E712
+        .options(selectinload(Task.recurrence_rule))
+        .order_by(RecurrenceRule.next_reset_at)
+        .limit(RESET_BATCH_SIZE)
+        .with_for_update(of=[Task, RecurrenceRule], skip_locked=True)
+    )
+    tasks = list(result.scalars().all())
 
-        return membership
-    async def run_due_task_resets(db: AsyncSession, redis=None) -> dict:
+    events: List[dict] = []
+    errors: List[dict] = []
+    for task in tasks:
+        try:
+            events.append(TaskService.apply_reset(task))
+        except Exception as exc:
+            errors.append({"task_id": str(task.id), "error": str(exc)})
+            logger.exception("task.reset.failed", task_id=str(task.id))
 
-        from app.models.models import RecurrenceRule
+    await db.commit()
+    for event in events:
+        await emit_group_event(event["group_id"], event)
 
-        now = datetime.now(timezone.utc)
-        result = await db.execute(
-            select(RecurrenceRule)
-            .join(Task, Task.id == RecurrenceRule.task_id)
-            .where(and_(RecurrenceRule.next_reset_at <= now, Task.is_active == True))
-        )
-        rules = list(result.scalars().all())
-
-        svc = TaskService(db=db, redis=redis)
-        reset_count = 0
-        errors: List[dict] = []
-
-        for rule in rules:
-            try:
-                async with db.begin_nested():
-                    await svc.reset_task(rule.task_id)
-                reset_count += 1
-            except Exception as exc:
-                errors.append({"task_id": str(rule.task_id), "error": str(exc)})
-
-        return {"checked": len(rules), "reset": reset_count, "errors": errors}
+    return {"checked": len(tasks), "reset": len(events), "errors": errors}

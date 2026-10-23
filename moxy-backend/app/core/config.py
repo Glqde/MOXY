@@ -32,7 +32,6 @@ class Settings(BaseSettings):
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_CELERY_URL: str = "redis://localhost:6379/1"
 
     # ── Supabase ──────────────────────────────────────────────────────────────
     SUPABASE_URL: str
@@ -57,9 +56,16 @@ class Settings(BaseSettings):
     AWS_REGION: str = "ap-south-1"
     FROM_EMAIL: str = "noreply@moxy.app"
 
-    # ── Task Locking ──────────────────────────────────────────────────────────
-    TASK_LOCK_TTL_SECONDS: int = 30
+    # ── Scheduler ─────────────────────────────────────────────────────────────
+    # In-process loop that resets due tasks every minute. Safe to run in every
+    # worker: due rows are claimed with FOR UPDATE SKIP LOCKED.
+    # /internal/reset-due-tasks stays available for an external cron.
+    ENABLE_SCHEDULER: bool = True
+    SCHEDULER_INTERVAL_SECONDS: int = 60
     INTERNAL_CRON_SECRET: str = ""
+
+    # How often (at most) a request bumps users.last_seen_at
+    LAST_SEEN_THROTTLE_SECONDS: int = 300
 
     @property
     def is_production(self) -> bool:

@@ -4,3 +4,5 @@ moxy-backend/.env
 moxy-frontend/.env
 *.pyc
 .DS_Store
+moxy-frontend/dist/
+__pycache__/

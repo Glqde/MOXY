@@ -1,19 +1,22 @@
 // src/pages/AuthCallbackPage.tsx
 // Handles the OAuth redirect from Supabase after Google sign-in.
-// Supabase automatically exchanges the code in the URL hash.
-// We just wait briefly then redirect to the app.
+// Supabase automatically exchanges the code in the URL hash; we redirect
+// once the auth store has the user.
 
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/store";
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const initialized = useAuthStore((s) => s.initialized);
 
+  // Leave as soon as Supabase has exchanged the code and /me has loaded
   useEffect(() => {
-    // Give Supabase JS a moment to process the auth code from the URL
-    const timer = setTimeout(() => navigate("/", { replace: true }), 3000);
-    return () => clearTimeout(timer);
-  }, []);
+    if (user) navigate("/", { replace: true });
+    else if (initialized) navigate("/login", { replace: true });
+  }, [user, initialized]);
 
   return (
     <div style={{
