@@ -1,7 +1,9 @@
 """
 app/core/auth.py
 """
+import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -17,46 +19,64 @@ from app.services.user_service import UserService
 
 bearer_scheme = HTTPBearer(auto_error=True)
 
-# Cache the JWKS so we don't fetch on every request
+# Cache the JWKS so we don't fetch on every request. Refetched (at most once
+# per JWKS_MIN_REFRESH_SECONDS) when a token arrives signed by an unknown key,
+# which is what happens after Supabase rotates signing keys.
+JWKS_MIN_REFRESH_SECONDS = 300
 _jwks_cache: dict | None = None
+_jwks_fetched_at: float = 0.0
 
-async def _get_jwks() -> dict:
-    global _jwks_cache
-    if _jwks_cache is None:
-        async with httpx.AsyncClient() as client:
+
+async def _get_jwks(force: bool = False) -> dict:
+    global _jwks_cache, _jwks_fetched_at
+    stale = time.monotonic() - _jwks_fetched_at > JWKS_MIN_REFRESH_SECONDS
+    if _jwks_cache is None or (force and stale):
+        async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
                 f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json",
                 headers={"apikey": settings.SUPABASE_ANON_KEY},
             )
             resp.raise_for_status()
             _jwks_cache = resp.json()
+            _jwks_fetched_at = time.monotonic()
     return _jwks_cache
 
 
-async def _decode_supabase_jwt(token: str) -> dict:
-    jwks = await _get_jwks()
+def _invalid_token(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def decode_supabase_jwt(token: str) -> dict:
     try:
-        # jose will pick the matching key by kid
-        payload = jwt.decode(
-            token,
-            jwks,
-            algorithms=["ES256", "HS256"],  # support both during transition
-            options={"verify_aud": False},
-        )
-        return payload
+        header = jwt.get_unverified_header(token)
+    except JWTError:
+        raise _invalid_token("Malformed token")
+
+    options = {"verify_aud": False}
+    try:
+        if header.get("alg") == "HS256":
+            # Legacy Supabase projects sign with the shared JWT secret
+            return jwt.decode(token, settings.SUPABASE_JWT_SECRET, algorithms=["HS256"], options=options)
+
+        jwks = await _get_jwks()
+        kid = header.get("kid")
+        if kid and not any(k.get("kid") == kid for k in jwks.get("keys", [])):
+            jwks = await _get_jwks(force=True)
+        # jose picks the matching key by kid
+        return jwt.decode(token, jwks, algorithms=["ES256", "RS256"], options=options)
     except JWTError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {str(e)}",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _invalid_token(f"Invalid or expired token: {e}")
 
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    payload = await _decode_supabase_jwt(credentials.credentials)
+    payload = await decode_supabase_jwt(credentials.credentials)
 
     user_id_str = payload.get("sub")
     if not user_id_str:
@@ -86,7 +106,10 @@ async def get_current_user(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
-    await user_service.touch_last_seen(user_id)
+    # Throttled so ordinary reads don't turn into a write on every request
+    now = datetime.now(timezone.utc)
+    if not user.last_seen_at or now - user.last_seen_at > timedelta(seconds=settings.LAST_SEEN_THROTTLE_SECONDS):
+        user.last_seen_at = now  # flushed by get_db's commit
     return user
 
 

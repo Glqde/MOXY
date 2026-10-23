@@ -41,10 +41,7 @@ async def search_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = UserService(db)
-    users = await svc.search(q)
-    # Exclude self from search results
-    return [u for u in users if u.id != current_user.id]
+    return await UserService(db).search(q, exclude_id=current_user.id)
 
 
 @router.get("/friends", response_model=List[UserPublic])

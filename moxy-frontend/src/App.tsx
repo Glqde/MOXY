@@ -26,8 +26,23 @@ const queryClient = new QueryClient({
   },
 });
 
+export function Splash({ label }: { label?: string }) {
+  return (
+    <div style={{
+      height: "100vh", background: "#0A0A0F",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      color: "rgba(240,240,255,0.5)", fontSize: 14,
+    }}>
+      {label}
+    </div>
+  );
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
+  const initialized = useAuthStore((s) => s.initialized);
+  // Wait for the stored session check — otherwise a refresh bounces to /login
+  if (!initialized) return <Splash />;
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }

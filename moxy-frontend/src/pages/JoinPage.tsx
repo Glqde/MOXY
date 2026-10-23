@@ -3,7 +3,7 @@
 // If unauthenticated → redirect to login, then come back here.
 // If authenticated → call join API, redirect to dashboard.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { groupApi } from "@/api/services";
 import { useAuthStore, useUIStore, useToastStore } from "@/store";
@@ -14,14 +14,17 @@ export function JoinPage() {
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const initialized = useAuthStore((s) => s.initialized);
   const { setActiveGroup, setActivePage } = useUIStore();
   const { addToast } = useToastStore.getState();
   const qc = useQueryClient();
 
   const [status, setStatus] = useState<"joining" | "success" | "error">("joining");
   const [errorMsg, setErrorMsg] = useState("");
+  const attempted = useRef(false); // StrictMode runs effects twice in dev
 
   useEffect(() => {
+    if (!initialized) return;
     if (!user) {
       // Save intended destination, redirect to login
       sessionStorage.setItem("moxy_post_login_redirect", `/join/${code}`);
@@ -33,6 +36,9 @@ export function JoinPage() {
       navigate("/", { replace: true });
       return;
     }
+
+    if (attempted.current) return;
+    attempted.current = true;
 
     const join = async () => {
       try {
@@ -51,7 +57,7 @@ export function JoinPage() {
     };
 
     join();
-  }, [user, code]);
+  }, [initialized, user, code]);
 
   const styles = {
     page: {

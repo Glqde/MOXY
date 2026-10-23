@@ -35,36 +35,35 @@ export function useAuth() {
  * Subscribes to Supabase auth state changes and keeps the store in sync.
  */
 export function useAuthInitializer() {
-  const { setUser, setToken, clear } = useAuthStore();
+  const { setUser, setToken, setInitialized, clear } = useAuthStore();
 
   useEffect(() => {
-    // Restore existing session on mount
-    supabase.auth.getSession().then(async ({ data }) => {
-      if (data.session) {
-        setToken(data.session.access_token);
-        try {
-          const me = await userApi.me();
-          setUser(me);
-        } catch {
-          // Token might be expired — listener below will handle refresh
-        }
-      }
-    });
+    // Fires INITIAL_SESSION on subscribe, then SIGNED_IN / TOKEN_REFRESHED / SIGNED_OUT
+    let loadedUserId: string | null = null;
 
-    // Listen for auth state changes (login, logout, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-          if (session) {
-            setToken(session.access_token);
-            const me = await userApi.me();
-            setUser(me);
-          }
-        } else if (event === "SIGNED_OUT") {
-          clear();
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        loadedUserId = null;
+        clear();
+        setInitialized();
+        return;
       }
-    );
+
+      setToken(session.access_token);
+      if (session.user.id === loadedUserId) return; // token refresh — profile unchanged
+      loadedUserId = session.user.id;
+
+      // Deferred: awaiting Supabase calls inside this callback can deadlock it
+      setTimeout(async () => {
+        try {
+          setUser(await userApi.me());
+        } catch {
+          loadedUserId = null;
+        } finally {
+          setInitialized();
+        }
+      }, 0);
+    });
 
     return () => subscription.unsubscribe();
   }, []);

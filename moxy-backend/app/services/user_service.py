@@ -4,10 +4,11 @@ User domain logic — thin service layer over the ORM.
 All database queries go through here, not directly in routes.
 """
 import uuid
-from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import select, or_, and_, func
+from fastapi import HTTPException
+from sqlalchemy import and_, case, or_, select, true
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,22 +61,20 @@ class UserService:
 
         return user
 
-    async def touch_last_seen(self, user_id: uuid.UUID) -> None:
-        user = await self.get_by_id(user_id)
-        if user:
-            user.last_seen_at = datetime.now(timezone.utc)
-
-    async def search(self, query: str, limit: int = 20) -> List[User]:
+    async def search(self, query: str, exclude_id: Optional[uuid.UUID] = None, limit: int = 20) -> List[User]:
         """
         Search users by name or email.
         ILIKE for case-insensitive partial match on PostgreSQL.
         """
-        pattern = f"%{query}%"
+        # Escape LIKE wildcards so "%" or "_" in the query match literally
+        escaped = query.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+        pattern = f"%{escaped}%"
         result = await self.db.execute(
             select(User)
             .where(
                 and_(
-                    User.is_active == True,
+                    User.is_active == True,  # noqa: E712
+                    User.id != exclude_id if exclude_id else true(),
                     or_(
                         User.full_name.ilike(pattern),
                         User.email.ilike(pattern),
@@ -94,6 +93,11 @@ class UserService:
         for key, value in kwargs.items():
             if value is not None and hasattr(user, key):
                 setattr(user, key, value)
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            await self.db.rollback()
+            raise HTTPException(409, "That username is already taken")
         return user
 
     async def get_friends(self, user_id: uuid.UUID) -> List[User]:
@@ -105,7 +109,7 @@ class UserService:
             select(User).where(
                 User.id.in_(
                     select(
-                        func.case(
+                        case(
                             (Friendship.user_id_1 == user_id, Friendship.user_id_2),
                             else_=Friendship.user_id_1,
                         )
@@ -138,8 +142,7 @@ class UserService:
                 )
             )
         )
-        if existing.scalar_one_or_none():
-            from fastapi import HTTPException
+        if existing.scalars().first():
             raise HTTPException(400, "Friend request already exists or users are already friends")
 
         req = FriendRequest(
@@ -149,13 +152,20 @@ class UserService:
         )
         self.db.add(req)
         await self.db.flush()
-        return req
+        return await self._load_request(req.id)
+
+    async def _load_request(self, request_id: uuid.UUID) -> FriendRequest:
+        result = await self.db.execute(
+            select(FriendRequest)
+            .where(FriendRequest.id == request_id)
+            .options(selectinload(FriendRequest.sender), selectinload(FriendRequest.receiver))
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one()
 
     async def respond_to_friend_request(
         self, request_id: uuid.UUID, receiver_id: uuid.UUID, action: str
     ) -> FriendRequest:
-        from fastapi import HTTPException
-
         result = await self.db.execute(
             select(FriendRequest).where(
                 and_(
@@ -181,4 +191,4 @@ class UserService:
             req.status = FriendRequestStatus.blocked
 
         await self.db.flush()
-        return req
+        return await self._load_request(req.id)

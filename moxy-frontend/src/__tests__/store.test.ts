@@ -2,7 +2,7 @@
 // Unit tests for Zustand stores — pure logic, no rendering needed.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { useUIStore, usePresenceStore, useToastStore } from "@/store";
+import { useAuthStore, useUIStore, usePresenceStore, useToastStore } from "@/store";
 
 // ── UIStore ───────────────────────────────────────────────────────────────────
 describe("useUIStore", () => {
@@ -89,5 +89,33 @@ describe("useToastStore", () => {
     const toasts = useToastStore.getState().toasts;
     expect(toasts).toHaveLength(2);
     expect(toasts[0].id).not.toBe(toasts[1].id);
+  });
+});
+
+describe("usePresenceStore.setMany", () => {
+  it("applies a batch of online and offline statuses", () => {
+    usePresenceStore.setState({ onlineUsers: new Set(["stale"]) });
+    usePresenceStore.getState().setMany({ "user-1": true, stale: false });
+    const s = usePresenceStore.getState();
+    expect(s.isOnline("user-1")).toBe(true);
+    expect(s.isOnline("stale")).toBe(false);
+  });
+});
+
+// ── AuthStore ─────────────────────────────────────────────────────────────────
+describe("useAuthStore", () => {
+  it("starts uninitialized so protected routes wait for the session check", () => {
+    expect(useAuthStore.getState().initialized).toBe(false);
+  });
+
+  it("keeps initialized after sign-out so the app doesn't show the splash again", () => {
+    const { setInitialized, setToken, clear } = useAuthStore.getState();
+    setToken("t");
+    setInitialized();
+    clear();
+    const s = useAuthStore.getState();
+    expect(s.initialized).toBe(true);
+    expect(s.token).toBeNull();
+    expect(s.user).toBeNull();
   });
 });

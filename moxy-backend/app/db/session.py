@@ -54,7 +54,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     """
-    Context manager variant for use outside FastAPI (e.g. Celery tasks).
+    Context manager variant for use outside FastAPI (e.g. the scheduler).
     """
     async with AsyncSessionLocal() as session:
         try:

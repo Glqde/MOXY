@@ -7,8 +7,9 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from "@tanstack/react-query";
-import { groupApi, notificationApi, taskApi, userApi } from "@/api/services";
-import { useToastStore } from "@/store";
+import { activityApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
+import { useEffect } from "react";
+import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
 import type { TaskRead } from "@/types";
 
 // ─── Query keys (centralized to enable precise invalidation) ──────────────────
@@ -23,6 +24,8 @@ export const QK = {
   notifications: ["notifications"] as const,
   unreadCount: ["notifications", "unread"] as const,
   friends: ["friends"] as const,
+  activityAll: ["activity"] as const,
+  activity: (groupId?: string) => ["activity", groupId ?? "all"] as const,
 };
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -71,12 +74,23 @@ export function useGroup(id: string) {
 }
 
 export function useGroupMembers(groupId: string) {
-  return useQuery({
+  const query = useQuery({
     queryKey: QK.groupMembers(groupId),
     queryFn: () => groupApi.members(groupId),
     enabled: !!groupId,
     staleTime: 20_000,
   });
+
+  // Seed presence; socket events only report changes after this point
+  useEffect(() => {
+    if (!query.data) return;
+    const me = useAuthStore.getState().user?.id;
+    usePresenceStore.getState().setMany(
+      Object.fromEntries(query.data.map((m) => [m.user.id, m.online || m.user.id === me]))
+    );
+  }, [query.data]);
+
+  return query;
 }
 
 export function useCreateGroup() {
@@ -166,6 +180,7 @@ export function useCompleteTask(groupId: string) {
     // ── Settle: sync with server reality ──────────────────────────────────
     onSettled: () => {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
+      qc.invalidateQueries({ queryKey: QK.activityAll });
     },
 
     onSuccess: (completion) => {
@@ -219,6 +234,16 @@ export function useEmergencyReset(groupId: string) {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
       addToast({ emoji: "🔄", title: "Task reset" });
     },
+  });
+}
+
+// ─── Activity ─────────────────────────────────────────────────────────────────
+
+export function useActivity(groupId?: string) {
+  return useQuery({
+    queryKey: QK.activity(groupId),
+    queryFn: () => activityApi.list({ group_id: groupId, limit: 100 }),
+    staleTime: 15_000,
   });
 }
 

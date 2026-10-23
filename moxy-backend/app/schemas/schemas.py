@@ -132,6 +132,7 @@ class GroupMemberRead(BaseModel):
     role: str
     joined_at: datetime
     notification_muted: bool
+    online: bool = False  # live presence from Redis, set by list_members
 
     model_config = {"from_attributes": True}
 
@@ -262,6 +263,7 @@ class ActivityLogRead(BaseModel):
     id: uuid.UUID
     group_id: uuid.UUID
     user_id: uuid.UUID
+    user: Optional[UserPublic] = None
     task_id: Optional[uuid.UUID]
     event_type: str
     event_data: Optional[Dict[str, Any]]

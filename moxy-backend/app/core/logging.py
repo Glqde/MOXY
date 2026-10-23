@@ -14,14 +14,16 @@ from app.core.config import settings
 def configure_logging() -> None:
     shared_processors = [
         structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
+        structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
     ]
 
     if settings.is_production:
-        processors = shared_processors + [structlog.processors.JSONRenderer()]
+        processors = shared_processors + [
+            structlog.processors.format_exc_info,
+            structlog.processors.JSONRenderer(),
+        ]
         log_level = logging.INFO
     else:
         processors = shared_processors + [

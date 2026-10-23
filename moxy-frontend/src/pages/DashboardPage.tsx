@@ -340,7 +340,9 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
 export function DashboardPage() {
   const C = useColors();
   const { activeGroupId, toggleNotifPanel, toggleCreateTask, toggleInviteMembers } = useUIStore();
-  const isOnline = usePresenceStore((s) => s.isOnline);
+  // Subscribe to the set itself so presence changes re-render the member list
+  const onlineUsers = usePresenceStore((s) => s.onlineUsers);
+  const isOnline = (userId: string) => onlineUsers.has(userId);
   const qc = useQueryClient();
 
   const { data: groups = [] } = useGroups();

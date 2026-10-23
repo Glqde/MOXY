@@ -1,22 +1,25 @@
 """
 tests/unit/test_task_completion.py
-Unit tests for the distributed task completion logic.
+Unit tests for task completion and reset logic.
 
 These tests verify:
-  1. First completion succeeds
+  1. First completion succeeds, notifies other members, commits before broadcasting
   2. Second completion (same period) is rejected — 409
-  3. Concurrent completions — only one wins
+  3. Non-members get 403, deleted tasks 404
   4. DB unique constraint fires correctly
-  5. Activity log is created on completion
+  5. Resets clear state, break streaks, and emit only after commit
 """
-import asyncio
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import IntegrityError
 
-from app.services.task_service import TaskService
+from app.models.models import Notification, RecurrenceRule
+from app.services.task_service import TaskService, run_due_task_resets
 
 
 @pytest.fixture
@@ -35,195 +38,172 @@ def mock_task():
 
 
 @pytest.fixture
-def mock_db():
-    db = AsyncMock()
-    db.flush = AsyncMock()
-    db.rollback = AsyncMock()
-    db.add = MagicMock()
-    return db
+def user():
+    u = MagicMock()
+    u.id = uuid.uuid4()
+    u.full_name = "Asha"
+    return u
 
 
 @pytest.fixture
-def mock_redis():
-    redis = AsyncMock()
-    # Default: lock acquired successfully
-    redis.set = AsyncMock(return_value=True)
-    redis.delete = AsyncMock()
-    redis.publish = AsyncMock()
-    return redis
+def mock_db():
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.add_all = MagicMock()
+    return db
+
+
+def _daily_rule():
+    rule = MagicMock(spec=RecurrenceRule)
+    rule.recurrence_type = "daily"
+    rule.interval_value = 1
+    rule.cron_expression = None
+    rule.timezone = "UTC"
+    return rule
 
 
 class TestTaskCompletion:
 
     @pytest.mark.asyncio
-    async def test_complete_task_success(self, mock_task, mock_db, mock_redis):
-        """First completion of a task should succeed."""
-        user_id = uuid.uuid4()
-        membership = MagicMock()
-        membership.role = "member"
+    async def test_complete_task_success(self, mock_task, mock_db, user):
+        """First completion succeeds, notifies the other member, emits after commit."""
+        other_member = uuid.uuid4()
+        order = []
+        mock_db.commit = AsyncMock(side_effect=lambda: order.append("commit"))
+        emit = AsyncMock(side_effect=lambda *a, **k: order.append("emit"))
 
         with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch.object(TaskService, "_get_membership", return_value=membership), \
-             patch.object(TaskService, "_get_group_member_ids", return_value=[user_id]), \
-             patch("app.services.task_service.publish_group_event", AsyncMock()), \
-             patch("app.services.task_service.send_completion_notifications") as mock_notif:
+             patch.object(TaskService, "_get_membership", return_value=MagicMock()), \
+             patch.object(TaskService, "_notifiable_member_ids", return_value=[other_member]), \
+             patch("app.services.task_service.emit_group_event", emit):
 
-            mock_notif.delay = MagicMock()
+            svc = TaskService(db=mock_db)
+            result = await svc.complete_task(task_id=mock_task.id, user=user, group_id=mock_task.group_id)
 
-            svc = TaskService(db=mock_db, redis=mock_redis)
-            result = await svc.complete_task(
-                task_id=mock_task.id,
-                user_id=user_id,
-            )
-
-        assert result is not None
+        assert result.completed_by == user.id
         assert mock_task.is_completed_this_period is True
         assert mock_task.times_completed_total == 1
         assert mock_task.completion_streak == 6
+        assert order == ["commit", "emit"]
+
+        notifications = mock_db.add_all.call_args.args[0]
+        assert [n.user_id for n in notifications] == [other_member]
+        assert all(isinstance(n, Notification) for n in notifications)
+        assert emit.call_args.args[1]["completed_by_name"] == "Asha"
 
     @pytest.mark.asyncio
-    async def test_complete_already_done_period(self, mock_task, mock_db, mock_redis):
+    async def test_complete_already_done_period(self, mock_task, mock_db, user):
         """Attempting to complete an already-completed task should raise 409."""
-        from fastapi import HTTPException
-
-        mock_task.is_completed_this_period = True  # already done
-        user_id = uuid.uuid4()
-        membership = MagicMock()
+        mock_task.is_completed_this_period = True
 
         with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch.object(TaskService, "_get_membership", return_value=membership):
+             patch.object(TaskService, "_get_membership", return_value=MagicMock()):
 
-            svc = TaskService(db=mock_db, redis=mock_redis)
+            svc = TaskService(db=mock_db)
             with pytest.raises(HTTPException) as exc_info:
-                await svc.complete_task(task_id=mock_task.id, user_id=user_id)
+                await svc.complete_task(task_id=mock_task.id, user=user)
 
         assert exc_info.value.status_code == 409
         assert "already completed" in exc_info.value.detail.lower()
+        mock_db.commit.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_redis_lock_prevents_concurrent_completion(self, mock_task, mock_db):
-        """When Redis lock is not acquired, 409 is raised immediately."""
-        from fastapi import HTTPException
+    async def test_completion_locks_task_row(self, mock_task, mock_db, user):
+        """The task must be read FOR UPDATE so concurrent completions serialize."""
+        get_by_id = AsyncMock(return_value=mock_task)
+        mock_task.is_completed_this_period = True
 
-        # Redis returns None (lock not acquired — another request holds it)
-        redis = AsyncMock()
-        redis.set = AsyncMock(return_value=None)
-        redis.delete = AsyncMock()
+        with patch.object(TaskService, "get_by_id", get_by_id), \
+             patch.object(TaskService, "_get_membership", return_value=MagicMock()):
+            with pytest.raises(HTTPException):
+                await TaskService(db=mock_db).complete_task(task_id=mock_task.id, user=user)
 
-        user_id = uuid.uuid4()
-        membership = MagicMock()
-
-        with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch.object(TaskService, "_get_membership", return_value=membership):
-
-            svc = TaskService(db=mock_db, redis=redis)
-            with pytest.raises(HTTPException) as exc_info:
-                await svc.complete_task(task_id=mock_task.id, user_id=user_id)
-
-        assert exc_info.value.status_code == 409
-        # Lock should NOT be deleted since it was never acquired
-        redis.delete.assert_not_called()
+        assert get_by_id.call_args.kwargs["for_update"] is True
 
     @pytest.mark.asyncio
-    async def test_nonmember_cannot_complete(self, mock_task, mock_db, mock_redis):
+    async def test_nonmember_cannot_complete(self, mock_task, mock_db, user):
         """Users not in the group should get 403."""
-        from fastapi import HTTPException
-
-        user_id = uuid.uuid4()
-
         with patch.object(TaskService, "get_by_id", return_value=mock_task), \
              patch.object(TaskService, "_get_membership", return_value=None):
 
-            svc = TaskService(db=mock_db, redis=mock_redis)
+            svc = TaskService(db=mock_db)
             with pytest.raises(HTTPException) as exc_info:
-                await svc.complete_task(task_id=mock_task.id, user_id=user_id)
+                await svc.complete_task(task_id=mock_task.id, user=user)
 
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_inactive_task_raises_404(self, mock_task, mock_db, mock_redis):
+    async def test_inactive_task_raises_404(self, mock_task, mock_db, user):
         """Completing an inactive (deleted) task should raise 404."""
-        from fastapi import HTTPException
-
         mock_task.is_active = False
 
         with patch.object(TaskService, "get_by_id", return_value=mock_task):
-            svc = TaskService(db=mock_db, redis=mock_redis)
+            svc = TaskService(db=mock_db)
             with pytest.raises(HTTPException) as exc_info:
-                await svc.complete_task(task_id=mock_task.id, user_id=uuid.uuid4())
+                await svc.complete_task(task_id=mock_task.id, user=user)
 
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_db_integrity_error_caught(self, mock_task, mock_db, mock_redis):
-        """
-        DB unique constraint IntegrityError should be caught and converted to 409.
-        This is the slow-path race condition guard.
-        """
-        from fastapi import HTTPException
-        from sqlalchemy.exc import IntegrityError
-
-        user_id = uuid.uuid4()
-        membership = MagicMock()
-
-        # Simulate DB raising IntegrityError on flush (duplicate completion)
+    async def test_db_integrity_error_caught(self, mock_task, mock_db, user):
+        """DB unique constraint IntegrityError should be caught and converted to 409."""
         mock_db.flush = AsyncMock(side_effect=IntegrityError("", {}, None))
 
-        with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch.object(TaskService, "_get_membership", return_value=membership):
-
-            svc = TaskService(db=mock_db, redis=mock_redis)
-            with pytest.raises(HTTPException) as exc_info:
-                await svc._do_complete(mock_task, user_id, mock_task.current_period_start, None)
+        svc = TaskService(db=mock_db)
+        with pytest.raises(HTTPException) as exc_info:
+            await svc._do_complete(mock_task, user, mock_task.current_period_start, None)
 
         assert exc_info.value.status_code == 409
         mock_db.rollback.assert_called_once()
 
 
+class TestTaskScoping:
+
+    def test_task_lookup_is_scoped_to_group(self):
+        """Lookups with a group_id must filter on it — prevents cross-group edits."""
+        q = TaskService(db=MagicMock())._task_query(uuid.uuid4(), uuid.uuid4())
+        sql = str(q.compile(dialect=postgresql.dialect()))
+        assert "tasks.group_id = " in sql
+
+
 class TestTaskReset:
 
-    @pytest.mark.asyncio
-    async def test_reset_clears_completion_state(self, mock_task, mock_db, mock_redis):
+    def test_reset_clears_completion_state(self, mock_task):
         """After reset, task should be pending again with updated period."""
-        from app.models.models import RecurrenceRule
-
         mock_task.is_completed_this_period = True
-        mock_task.completion_streak = 5
+        mock_task.recurrence_rule = _daily_rule()
 
-        rule = MagicMock(spec=RecurrenceRule)
-        rule.recurrence_type = "daily"
-        rule.interval_value = 1
-        rule.cron_expression = None
-        rule.timezone = "UTC"
-        mock_task.recurrence_rule = rule
-
-        with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch("app.services.task_service.publish_group_event", AsyncMock()):
-
-            svc = TaskService(db=mock_db, redis=mock_redis)
-            result = await svc.reset_task(mock_task.id)
+        event = TaskService.apply_reset(mock_task)
 
         assert mock_task.is_completed_this_period is False
+        assert mock_task.completion_streak == 5  # completed → streak kept
+        assert event["event"] == "task_reset"
+        assert mock_task.recurrence_rule.next_reset_at == mock_task.current_period_end
 
-    @pytest.mark.asyncio
-    async def test_missed_period_breaks_streak(self, mock_task, mock_db, mock_redis):
+    def test_missed_period_breaks_streak(self, mock_task):
         """If task was NOT completed before reset, streak should be zeroed."""
-        from app.models.models import RecurrenceRule
-
-        mock_task.is_completed_this_period = False  # missed!
         mock_task.completion_streak = 10
+        mock_task.recurrence_rule = _daily_rule()
 
-        rule = MagicMock(spec=RecurrenceRule)
-        rule.recurrence_type = "daily"
-        rule.interval_value = 1
-        rule.cron_expression = None
-        rule.timezone = "UTC"
-        mock_task.recurrence_rule = rule
-
-        with patch.object(TaskService, "get_by_id", return_value=mock_task), \
-             patch("app.services.task_service.publish_group_event", AsyncMock()):
-
-            svc = TaskService(db=mock_db, redis=mock_redis)
-            await svc.reset_task(mock_task.id)
+        TaskService.apply_reset(mock_task)
 
         assert mock_task.completion_streak == 0
+
+    @pytest.mark.asyncio
+    async def test_run_due_task_resets_emits_after_commit(self, mock_task, mock_db):
+        """run_due_task_resets is importable at module level and broadcasts post-commit."""
+        mock_task.recurrence_rule = _daily_rule()
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [mock_task]
+        mock_db.execute = AsyncMock(return_value=result)
+        order = []
+        mock_db.commit = AsyncMock(side_effect=lambda: order.append("commit"))
+        emit = AsyncMock(side_effect=lambda *a, **k: order.append("emit"))
+
+        with patch("app.services.task_service.emit_group_event", emit):
+            summary = await run_due_task_resets(mock_db)
+
+        assert summary == {"checked": 1, "reset": 1, "errors": []}
+        assert order == ["commit", "emit"]
+        sql = str(mock_db.execute.call_args.args[0].compile(dialect=postgresql.dialect()))
+        assert "FOR UPDATE" in sql and "SKIP LOCKED" in sql

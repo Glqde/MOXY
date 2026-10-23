@@ -64,7 +64,7 @@ def calculate_next_reset(
     timezone_str: str = "UTC",
 ) -> Optional[datetime]:
     """
-    Calculate when this task should next be reset by Celery.
+    Calculate when this task should next be reset by the scheduler.
     For custom cron expressions, uses croniter.
     """
     if recurrence_type == "custom" and cron_expression:
