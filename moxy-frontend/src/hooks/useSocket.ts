@@ -15,6 +15,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getSocket, disconnectSocket } from "@/lib/socket";
 import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
 import { QK } from "./useQueries";
+import { playSound } from "@/lib/sounds";
+import { notifyDesktop } from "@/lib/desktopNotify";
 import type {
   TaskRead, WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
 } from "@/types";
@@ -50,12 +52,12 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       patchTask(data.group_id, data.task_id, { is_completed_this_period: true });
       qc.invalidateQueries({ queryKey: QK.notifications }); // also covers unread count
       qc.invalidateQueries({ queryKey: QK.activityAll });
+      // Our own completions get their popup + sound from the mutation
       if (data.completed_by_id !== userId) {
-        addToast({
-          emoji: data.task_emoji,
-          title: `${data.completed_by_name} completed ${data.task_title}`,
-          sub: "Just now",
-        });
+        const title = `${data.completed_by_name} completed ${data.task_title}`;
+        addToast({ emoji: data.task_emoji, title, sub: "Just now" });
+        playSound("complete");
+        notifyDesktop(`${data.task_emoji} ${title}`, "MOXY", `task-${data.task_id}`);
       }
     };
 
@@ -63,7 +65,10 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       patchTask(data.group_id, data.task_id, { is_completed_this_period: false, latest_completion: null });
       qc.invalidateQueries({ queryKey: QK.activityAll });
       if (data.undone_by_id !== userId) {
-        addToast({ emoji: "↩️", title: `${data.undone_by_name} undid ${data.task_title}`, type: "info" });
+        const title = `${data.undone_by_name} undid ${data.task_title}`;
+        addToast({ emoji: "↩️", title, type: "info" });
+        playSound("undo");
+        notifyDesktop(`↩️ ${title}`, "MOXY", `task-${data.task_id}`);
       }
     };
 

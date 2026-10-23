@@ -2,7 +2,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadCount } from "@/hooks/useQueries";
-import { useUIStore } from "@/store";
+import { useToastStore, useUIStore } from "@/store";
+import { playSound } from "@/lib/sounds";
 import { useColors } from "@/lib/theme";
 import { groupApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
@@ -182,6 +183,8 @@ export function Sidebar({ groups }: SidebarProps) {
     try {
       await groupApi.delete(groupId);
       qc.invalidateQueries({ queryKey: QK.groups });
+      playSound("delete");
+      useToastStore.getState().addToast({ emoji: "🗑️", title: "Group deleted", type: "info" });
     } catch {
       alert("Failed to delete group");
     }

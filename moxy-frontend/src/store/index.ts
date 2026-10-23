@@ -47,6 +47,8 @@ interface UIState {
   showCreateGroup: boolean;
   showInviteMembers: boolean;
   theme: "dark" | "light";
+  soundEnabled: boolean;
+  desktopNotifications: boolean;
 
   setActiveGroup: (id: string | null) => void;
   setActivePage: (page: UIState["activePage"]) => void;
@@ -56,6 +58,8 @@ interface UIState {
   toggleCreateGroup: () => void;
   toggleInviteMembers: () => void;
   setTheme: (t: "dark" | "light") => void;
+  setSoundEnabled: (on: boolean) => void;
+  setDesktopNotifications: (on: boolean) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -68,6 +72,8 @@ export const useUIStore = create<UIState>()(
       showCreateGroup: false,
       showInviteMembers: false,
       theme: "dark",
+      soundEnabled: true,
+      desktopNotifications: false, // needs browser permission first
 
       setActiveGroup: (id) => set({ activeGroupId: id, activePage: "dashboard" }),
       setActivePage: (page) => set({ activePage: page }),
@@ -77,10 +83,17 @@ export const useUIStore = create<UIState>()(
       toggleCreateGroup: () => set((s) => ({ showCreateGroup: !s.showCreateGroup })),
       toggleInviteMembers: () => set((s) => ({ showInviteMembers: !s.showInviteMembers })),
       setTheme: (theme) => set({ theme }),
+      setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
+      setDesktopNotifications: (desktopNotifications) => set({ desktopNotifications }),
     }),
     {
       name: "moxy-ui",
-      partialize: (s) => ({ activeGroupId: s.activeGroupId, theme: s.theme }),
+      partialize: (s) => ({
+        activeGroupId: s.activeGroupId,
+        theme: s.theme,
+        soundEnabled: s.soundEnabled,
+        desktopNotifications: s.desktopNotifications,
+      }),
     }
   )
 );
