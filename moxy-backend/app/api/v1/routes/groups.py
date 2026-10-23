@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_group_admin
+from app.core.redis import get_online_members, get_redis
 from app.db.session import get_db
 from app.models.models import GroupMember, User
 from app.schemas.schemas import (
@@ -104,7 +105,16 @@ async def list_members(
 ):
     svc = GroupService(db)
     await _require_member(svc, group_id, current_user)
-    return await svc.get_members(group_id)
+    members = await svc.get_members(group_id)
+    # Presence events only cover changes after a client connects, so the
+    # initial online state has to come with the member list
+    try:
+        online = await get_online_members(get_redis(), [str(m.user_id) for m in members])
+    except Exception:
+        online = {}
+    for m in members:
+        m.online = online.get(str(m.user_id), False)
+    return members
 
 
 @router.post("/{group_id}/members", response_model=GroupMemberRead, status_code=status.HTTP_201_CREATED)

@@ -132,6 +132,7 @@ class GroupMemberRead(BaseModel):
     role: str
     joined_at: datetime
     notification_muted: bool
+    online: bool = False  # live presence from Redis, set by list_members
 
     model_config = {"from_attributes": True}
 

@@ -59,7 +59,7 @@ export interface GroupMemberRead {
   role: GroupRole;
   joined_at: string;
   notification_muted: boolean;
-  online?: boolean; // injected client-side from presence data
+  online: boolean; // presence at fetch time; live updates come over the socket
 }
 
 export interface GroupCreate {

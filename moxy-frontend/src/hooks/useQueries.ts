@@ -8,7 +8,8 @@ import {
   type UseMutationOptions,
 } from "@tanstack/react-query";
 import { activityApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
-import { useToastStore } from "@/store";
+import { useEffect } from "react";
+import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
 import type { TaskRead } from "@/types";
 
 // ─── Query keys (centralized to enable precise invalidation) ──────────────────
@@ -73,12 +74,23 @@ export function useGroup(id: string) {
 }
 
 export function useGroupMembers(groupId: string) {
-  return useQuery({
+  const query = useQuery({
     queryKey: QK.groupMembers(groupId),
     queryFn: () => groupApi.members(groupId),
     enabled: !!groupId,
     staleTime: 20_000,
   });
+
+  // Seed presence; socket events only report changes after this point
+  useEffect(() => {
+    if (!query.data) return;
+    const me = useAuthStore.getState().user?.id;
+    usePresenceStore.getState().setMany(
+      Object.fromEntries(query.data.map((m) => [m.user.id, m.online || m.user.id === me]))
+    );
+  }, [query.data]);
+
+  return query;
 }
 
 export function useCreateGroup() {

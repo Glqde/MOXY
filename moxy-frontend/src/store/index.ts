@@ -86,12 +86,14 @@ export const useUIStore = create<UIState>()(
 );
 
 // ─── Presence store ───────────────────────────────────────────────────────────
-// Tracks which users are online, populated by WebSocket presence events.
+// Tracks which users are online: seeded from the members API, then kept
+// current by WebSocket presence events.
 
 interface PresenceState {
   onlineUsers: Set<string>;
   setOnline: (userId: string) => void;
   setOffline: (userId: string) => void;
+  setMany: (statuses: Record<string, boolean>) => void;
   isOnline: (userId: string) => boolean;
 }
 
@@ -103,6 +105,15 @@ export const usePresenceStore = create<PresenceState>()((set, get) => ({
     set((s) => {
       const next = new Set(s.onlineUsers);
       next.delete(userId);
+      return { onlineUsers: next };
+    }),
+  setMany: (statuses) =>
+    set((s) => {
+      const next = new Set(s.onlineUsers);
+      for (const [userId, online] of Object.entries(statuses)) {
+        if (online) next.add(userId);
+        else next.delete(userId);
+      }
       return { onlineUsers: next };
     }),
   isOnline: (userId) => get().onlineUsers.has(userId),

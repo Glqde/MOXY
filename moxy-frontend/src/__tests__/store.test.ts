@@ -92,6 +92,16 @@ describe("useToastStore", () => {
   });
 });
 
+describe("usePresenceStore.setMany", () => {
+  it("applies a batch of online and offline statuses", () => {
+    usePresenceStore.setState({ onlineUsers: new Set(["stale"]) });
+    usePresenceStore.getState().setMany({ "user-1": true, stale: false });
+    const s = usePresenceStore.getState();
+    expect(s.isOnline("user-1")).toBe(true);
+    expect(s.isOnline("stale")).toBe(false);
+  });
+});
+
 // ── AuthStore ─────────────────────────────────────────────────────────────────
 describe("useAuthStore", () => {
   it("starts uninitialized so protected routes wait for the session check", () => {

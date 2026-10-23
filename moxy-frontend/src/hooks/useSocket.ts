@@ -84,6 +84,7 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
 
     const handleConnect = () => {
       setConnected(true);
+      setOnline(userId); // the server doesn't echo our own presence back to us
       // Catch up on anything missed while disconnected
       qc.invalidateQueries({ queryKey: ["tasks"] });
     };
