@@ -2,6 +2,7 @@
 import { useNotifications, useMarkRead, useMarkAllRead } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
 import { useColors } from "@/lib/theme";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const typeEmoji: Record<string, string> = {
   task_completed: "✅", task_reminder: "⏰", task_overdue: "🚨",
@@ -11,6 +12,7 @@ const typeEmoji: Record<string, string> = {
 
 export function NotifPanel() {
   const C = useColors();
+  const isMobile = useIsMobile();
   const { closeNotifPanel } = useUIStore();
   const { data: notifications = [], isLoading } = useNotifications();
   const markRead = useMarkRead();
@@ -22,7 +24,7 @@ export function NotifPanel() {
 
   return (
     <div style={{
-      position: "absolute", top: 0, right: 0, bottom: 0, width: 320,
+      position: "absolute", top: 0, right: 0, bottom: 0, width: isMobile ? "100%" : 320,
       background: C.bgCard, borderLeft: `1px solid ${C.border}`,
       zIndex: 100, display: "flex", flexDirection: "column",
       transition: "background 0.2s, border-color 0.2s",

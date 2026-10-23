@@ -1,5 +1,6 @@
 // src/pages/SettingsPage.tsx
 import { useState, useRef } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useMe, useUpdateMe, useGroups, useGroupMembers } from "@/hooks/useQueries";
 import { useToastStore, useUIStore } from "@/store";
 import { playSound } from "@/lib/sounds";
@@ -96,7 +97,7 @@ function EditableField({ label, value, onSave, placeholder, C }: {
             style={{
               background: C.bgElevated, border: `1px solid ${C.accent}60`,
               borderRadius: 8, color: C.text, fontSize: 13, padding: "6px 10px",
-              outline: "none", fontFamily: "inherit", width: 200,
+              outline: "none", fontFamily: "inherit", width: "min(200px, 42vw)",
             }}
           />
           <button onClick={save} disabled={saving} style={{
@@ -213,6 +214,7 @@ function GroupMembersSection({ groupId, groupName, groupColor, C }: {
 }
 
 export function SettingsPage() {
+  const isMobile = useIsMobile();
   const { data: me } = useMe();
   const updateMe = useUpdateMe();
   const { data: groups = [] } = useGroups();
@@ -258,7 +260,7 @@ export function SettingsPage() {
   const initials = me.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px", maxWidth: 640, background: C.bgBase, transition: "background 0.2s" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px", maxWidth: 640, background: C.bgBase, transition: "background 0.2s" }}>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>
           Settings

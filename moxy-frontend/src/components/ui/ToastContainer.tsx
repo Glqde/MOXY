@@ -29,7 +29,7 @@ export function ToastContainer() {
             borderRadius: 12, padding: "12px 20px",
             display: "flex", alignItems: "center", gap: 10,
             boxShadow: `0 0 0 1px rgba(${rgb},0.2), 0 8px 32px rgba(0,0,0,0.6)`,
-            cursor: "pointer", minWidth: 240, maxWidth: 360,
+            cursor: "pointer", minWidth: 240, maxWidth: "min(360px, calc(100vw - 24px))",
             animation: "toastIn 0.3s ease",
           }}
         >
