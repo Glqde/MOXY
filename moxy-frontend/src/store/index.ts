@@ -46,6 +46,7 @@ interface UIState {
   showCreateTask: boolean;
   showCreateGroup: boolean;
   showInviteMembers: boolean;
+  showMobileNav: boolean; // slide-out sidebar on phones
   theme: "dark" | "light";
   soundEnabled: boolean;
   desktopNotifications: boolean;
@@ -57,6 +58,7 @@ interface UIState {
   toggleCreateTask: () => void;
   toggleCreateGroup: () => void;
   toggleInviteMembers: () => void;
+  setMobileNav: (open: boolean) => void;
   setTheme: (t: "dark" | "light") => void;
   setSoundEnabled: (on: boolean) => void;
   setDesktopNotifications: (on: boolean) => void;
@@ -71,17 +73,20 @@ export const useUIStore = create<UIState>()(
       showCreateTask: false,
       showCreateGroup: false,
       showInviteMembers: false,
+      showMobileNav: false,
       theme: "dark",
       soundEnabled: true,
       desktopNotifications: false, // needs browser permission first
 
-      setActiveGroup: (id) => set({ activeGroupId: id, activePage: "dashboard" }),
-      setActivePage: (page) => set({ activePage: page }),
+      // Navigating also closes the phone slide-out menu
+      setActiveGroup: (id) => set({ activeGroupId: id, activePage: "dashboard", showMobileNav: false }),
+      setActivePage: (page) => set({ activePage: page, showMobileNav: false }),
       toggleNotifPanel: () => set((s) => ({ showNotifPanel: !s.showNotifPanel })),
       closeNotifPanel: () => set({ showNotifPanel: false }),
       toggleCreateTask: () => set((s) => ({ showCreateTask: !s.showCreateTask })),
       toggleCreateGroup: () => set((s) => ({ showCreateGroup: !s.showCreateGroup })),
       toggleInviteMembers: () => set((s) => ({ showInviteMembers: !s.showInviteMembers })),
+      setMobileNav: (showMobileNav) => set({ showMobileNav }),
       setTheme: (theme) => set({ theme }),
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
       setDesktopNotifications: (desktopNotifications) => set({ desktopNotifications }),

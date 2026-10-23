@@ -1,5 +1,6 @@
 // src/pages/ActivityPage.tsx
 import { useMemo, useState } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useActivity, useGroups } from "@/hooks/useQueries";
 import { useColors } from "@/lib/theme";
 import type { ActivityLogRead, GroupRead } from "@/types";
@@ -109,6 +110,7 @@ function toEntry(log: ActivityLogRead, group: GroupRead | undefined): ActivityEn
 }
 
 export function ActivityPage() {
+  const isMobile = useIsMobile();
   const C = useColors();
   const { data: groups = [] } = useGroups();
   const [filter, setFilter] = useState<string>("all");
@@ -127,7 +129,7 @@ export function ActivityPage() {
   ];
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px" }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>
           Activity

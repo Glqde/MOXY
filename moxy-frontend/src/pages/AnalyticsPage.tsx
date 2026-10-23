@@ -1,5 +1,6 @@
 // src/pages/AnalyticsPage.tsx
 import { useMemo } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGroups, useTasks } from "@/hooks/useQueries";
 import { useUIStore } from "@/store";
 import { useColors } from "@/lib/theme";
@@ -79,6 +80,7 @@ function Heatmap({ data }: { data: number[] }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function AnalyticsPage() {
+  const isMobile = useIsMobile();
   const C = useColors();
   const { activeGroupId } = useUIStore();
   const { data: groups = [] } = useGroups();
@@ -139,7 +141,7 @@ export function AnalyticsPage() {
   const blue = "#3B82F6";
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px" }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.5px" }}>Analytics</h1>
         <p style={{ color: C.textMuted, fontSize: 13, margin: 0 }}>

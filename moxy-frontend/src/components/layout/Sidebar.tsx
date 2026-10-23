@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUnreadCount } from "@/hooks/useQueries";
 import { useToastStore, useUIStore } from "@/store";
 import { playSound } from "@/lib/sounds";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useColors } from "@/lib/theme";
 import { groupApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import { JoinGroupModal } from "@/components/modals/JoinGroupModal";
 
 interface SidebarProps {
   groups: GroupRead[];
+  width?: number;
 }
 
 const NAV = [
@@ -164,8 +166,9 @@ function GroupMenu({ group, onEdit, onDelete }: {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
-export function Sidebar({ groups }: SidebarProps) {
+export function Sidebar({ groups, width = 220 }: SidebarProps) {
   const C = useColors();
+  const isMobile = useIsMobile(); // no hover on touch screens
   const { user, signOut } = useAuth();
   const { activeGroupId, activePage, setActiveGroup, setActivePage, toggleCreateGroup, toggleInviteMembers } = useUIStore();
   const { data: unreadCount = 0 } = useUnreadCount();
@@ -192,7 +195,7 @@ export function Sidebar({ groups }: SidebarProps) {
 
   return (
     <div style={{
-      width: 220, flexShrink: 0, background: C.bgCard,
+      width, flexShrink: 0, background: C.bgCard,
       borderRight: `1px solid ${C.border}`,
       display: "flex", flexDirection: "column", height: "100%",
       userSelect: "none", transition: "background 0.2s, border-color 0.2s",
@@ -292,7 +295,7 @@ export function Sidebar({ groups }: SidebarProps) {
                 }}>{g.member_count}</span>
               </button>
 
-              {isHovered && (
+              {(isHovered || isMobile) && (
                 <div style={{ position: "absolute", right: 4 }}>
                   <GroupMenu group={g} onEdit={setEditingGroup} onDelete={handleDeleteGroup} />
                 </div>

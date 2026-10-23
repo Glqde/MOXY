@@ -2,6 +2,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useColors } from "@/lib/theme";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface ModalProps {
   title: string;
@@ -14,6 +15,7 @@ interface ModalProps {
 export function Modal({ title, onClose, children, width = 440, footer }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const C = useColors();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -33,7 +35,7 @@ export function Modal({ title, onClose, children, width = 440, footer }: ModalPr
         position: "fixed", inset: 0, zIndex: 1000,
         background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        padding: 24, animation: "fadeIn 0.15s ease",
+        padding: isMobile ? 12 : 24, animation: "fadeIn 0.15s ease",
       }}
     >
       <div style={{
@@ -41,7 +43,8 @@ export function Modal({ title, onClose, children, width = 440, footer }: ModalPr
         borderRadius: 16, width, maxWidth: "100%",
         boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
         animation: "slideUp 0.2s ease",
-        display: "flex", flexDirection: "column", maxHeight: "90vh",
+        // dvh so the browser toolbar on phones doesn't hide the footer buttons
+        display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100dvh - 24px)" : "90vh",
         transition: "background 0.2s, border-color 0.2s",
       }}>
         <div style={{

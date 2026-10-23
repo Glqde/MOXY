@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useUIStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
 import { taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
@@ -207,6 +208,7 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
   const [localCompleting, setLocalCompleting] = useState(false);
   const [localUndoing, setLocalUndoing] = useState(false);   // ← add this
   const [hovered, setHovered] = useState(false);
+  const isMobile = useIsMobile(); // no hover on touch screens — keep the menu visible
   const completeMutation = useCompleteTask(groupId);
   const undoMutation = useUndoCompleteTask(groupId);          // ← add this
   const done = task.is_completed_this_period;
@@ -329,7 +331,7 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
           )}
         </div>
 
-        <div style={{ opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
+        <div style={{ opacity: hovered || isMobile ? 1 : 0, transition: "opacity 0.15s" }}>
           <TaskMenu task={task} groupId={groupId} onEdit={onEdit} onDelete={onDelete} />
         </div>
       </div>
@@ -354,6 +356,7 @@ export function DashboardPage() {
   const { data: unreadCount = 0 } = useUnreadCount();
 
   const [editingTask, setEditingTask] = useState<TaskRead | null>(null);
+  const isMobile = useIsMobile();
 
   const handleDelete = async (taskId: string) => {
     if (!activeGroupId) return;
@@ -385,14 +388,17 @@ export function DashboardPage() {
   const completed = tasks.filter((t) => t.is_completed_this_period);
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px" }}>
       {editingTask && (
         <EditTaskModal task={editingTask} groupId={group.id} onClose={() => setEditingTask(null)} />
       )}
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
-        <div>
+      <div style={{
+        display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+        flexWrap: "wrap", gap: 12, marginBottom: isMobile ? 16 : 24,
+      }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
             <span style={{ fontSize: 26 }}>{group.icon}</span>
             <h1 style={{ color: C.text, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.5px" }}>
@@ -412,7 +418,8 @@ export function DashboardPage() {
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={toggleNotifPanel} style={{
+          {/* On phones the bell lives in the top bar */}
+          {!isMobile && <button onClick={toggleNotifPanel} style={{
             background: C.bgElevated, border: `1px solid ${C.border}`,
             borderRadius: 10, padding: "8px 14px", color: C.textMuted,
             cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 6,
@@ -424,12 +431,12 @@ export function DashboardPage() {
                 borderRadius: 10, padding: "1px 6px", fontWeight: 600,
               }}>{unreadCount}</span>
             )}
-          </button>
-          <button onClick={toggleInviteMembers} style={{
+          </button>}
+          <button onClick={toggleInviteMembers} aria-label="Invite members" style={{
             background: C.bgElevated, border: `1px solid ${C.border}`,
             borderRadius: 10, padding: "8px 14px", color: C.textMuted,
             cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 6,
-          }}>👥 Invite</button>
+          }}>{isMobile ? "👥" : "👥 Invite"}</button>
           <button onClick={toggleCreateTask} style={{
             background: group.color, border: "none",
             borderRadius: 10, padding: "8px 16px", color: "#fff",
@@ -439,15 +446,15 @@ export function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: isMobile ? 8 : 12, marginBottom: isMobile ? 16 : 24 }}>
         {[
           { label: "Pending", value: pending.length, color: C.amber, emoji: "⏳" },
           { label: "Done today", value: completed.length, color: C.green, emoji: "✅" },
           { label: "Group streak", value: `${Math.max(...tasks.map(t => t.completion_streak), 0)}d`, color: C.accent, emoji: "🔥" },
         ].map((s) => (
-          <div key={s.label} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: "14px 16px" }}>
-            <div style={{ color: C.textMuted, fontSize: 12, marginBottom: 6 }}>{s.emoji} {s.label}</div>
-            <div style={{ color: s.color, fontSize: 26, fontWeight: 600 }}>{s.value}</div>
+          <div key={s.label} style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: 12, padding: isMobile ? "10px 12px" : "14px 16px", minWidth: 0 }}>
+            <div style={{ color: C.textMuted, fontSize: isMobile ? 11 : 12, marginBottom: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.emoji} {s.label}</div>
+            <div style={{ color: s.color, fontSize: isMobile ? 22 : 26, fontWeight: 600 }}>{s.value}</div>
           </div>
         ))}
       </div>
