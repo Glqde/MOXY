@@ -10,6 +10,7 @@ import {
 import { activityApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
 import { useEffect } from "react";
 import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
+import { playSound } from "@/lib/sounds";
 import type { TaskRead } from "@/types";
 
 // ─── Query keys (centralized to enable precise invalidation) ──────────────────
@@ -100,6 +101,7 @@ export function useCreateGroup() {
     mutationFn: groupApi.create,
     onSuccess: (group) => {
       qc.invalidateQueries({ queryKey: QK.groups });
+      playSound("create");
       addToast({ emoji: group.icon, title: `${group.name} created!` });
     },
   });
@@ -124,6 +126,7 @@ export function useCreateTask(groupId: string) {
       taskApi.create(groupId, data),
     onSuccess: (task) => {
       qc.invalidateQueries({ queryKey: QK.tasks(groupId) });
+      playSound("create");
       addToast({ emoji: task.emoji, title: `"${task.title}" added` });
     },
   });
@@ -183,7 +186,8 @@ export function useCompleteTask(groupId: string) {
       qc.invalidateQueries({ queryKey: QK.activityAll });
     },
 
-    onSuccess: (completion) => {
+    onSuccess: () => {
+      playSound("complete");
       addToast({ emoji: "✅", title: "Task complete!", sub: "Your group has been notified" });
     },
   });
@@ -220,7 +224,8 @@ export function useUndoCompleteTask(groupId: string) {
     },
 
     onSuccess: () => {
-      addToast({ emoji: "↩️", title: "Completion undone" });
+      playSound("undo");
+      addToast({ emoji: "↩️", title: "Completion undone", type: "info" });
     },
   });
 }

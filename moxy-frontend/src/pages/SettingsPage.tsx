@@ -1,7 +1,9 @@
 // src/pages/SettingsPage.tsx
 import { useState, useRef } from "react";
 import { useMe, useUpdateMe, useGroups, useGroupMembers } from "@/hooks/useQueries";
-import { useUIStore } from "@/store";
+import { useToastStore, useUIStore } from "@/store";
+import { playSound } from "@/lib/sounds";
+import { desktopNotificationsSupported, requestDesktopPermission } from "@/lib/desktopNotify";
 import { useAuth } from "@/hooks/useAuth";
 import { useColors } from "@/lib/theme";
 import type { ColorPalette } from "@/lib/theme";
@@ -220,10 +222,32 @@ export function SettingsPage() {
 
   const [prefs, setPrefs] = useState({
     emailNotifications: true,
-    pushNotifications: true,
-    soundEnabled: true,
     vacationMode: false,
   });
+  const { soundEnabled, setSoundEnabled, desktopNotifications, setDesktopNotifications } = useUIStore();
+  const addToast = useToastStore((s) => s.addToast);
+
+  const toggleSound = (on: boolean) => {
+    setSoundEnabled(on);
+    if (on) playSound("complete"); // preview — this click also unlocks audio
+  };
+
+  const toggleDesktop = async (on: boolean) => {
+    if (!on) return setDesktopNotifications(false);
+    if (!desktopNotificationsSupported()) {
+      addToast({ emoji: "⚠️", title: "This browser doesn't support desktop notifications", type: "error" });
+      return;
+    }
+    const granted = await requestDesktopPermission();
+    setDesktopNotifications(granted);
+    if (!granted) {
+      addToast({
+        emoji: "🔕", type: "error",
+        title: "Notifications are blocked",
+        sub: "Allow them for this site in your browser settings",
+      });
+    }
+  };
   const setPref = (key: keyof typeof prefs) => (v: boolean) =>
     setPrefs((p) => ({ ...p, [key]: v }));
 
@@ -285,11 +309,11 @@ export function SettingsPage() {
         <Row first label="Email notifications" sub="Receive task reminders by email" C={C}>
           <Toggle value={prefs.emailNotifications} onChange={setPref("emailNotifications")} C={C} />
         </Row>
-        <Row label="Push notifications" sub="Browser and mobile push alerts" C={C}>
-          <Toggle value={prefs.pushNotifications} onChange={setPref("pushNotifications")} C={C} />
+        <Row label="Desktop notifications" sub="Alert me when the MOXY tab is in the background" C={C}>
+          <Toggle value={desktopNotifications} onChange={toggleDesktop} C={C} />
         </Row>
-        <Row label="Sound alerts" sub="Play a sound when tasks are completed" C={C}>
-          <Toggle value={prefs.soundEnabled} onChange={setPref("soundEnabled")} C={C} />
+        <Row label="Sound alerts" sub="Play sounds for completing, undoing, creating and deleting" C={C}>
+          <Toggle value={soundEnabled} onChange={toggleSound} C={C} />
         </Row>
         <Row label="Vacation mode" sub="Pause all reminders temporarily" C={C}>
           <Toggle value={prefs.vacationMode} onChange={setPref("vacationMode")} color={C.amber} C={C} />

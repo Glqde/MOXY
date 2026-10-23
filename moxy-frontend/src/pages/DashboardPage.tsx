@@ -1,6 +1,7 @@
 // src/pages/DashboardPage.tsx
 import { useState, useRef, useEffect } from "react";
-import { useUIStore, usePresenceStore } from "@/store";
+import { useUIStore, usePresenceStore, useToastStore } from "@/store";
+import { playSound } from "@/lib/sounds";
 import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
 import { taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
@@ -360,6 +361,8 @@ export function DashboardPage() {
     try {
       await taskApi.delete(activeGroupId, taskId);
       qc.invalidateQueries({ queryKey: QK.tasks(activeGroupId) });
+      playSound("delete");
+      useToastStore.getState().addToast({ emoji: "🗑️", title: "Task deleted", type: "info" });
     } catch {
       alert("Failed to delete task");
     }
