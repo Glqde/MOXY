@@ -4,7 +4,7 @@
 
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/lib/supabase";
-import type { WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset } from "@/types";
+import type { WsGroupInvite, WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset } from "@/types";
 
 // Realtime is served by the API itself, so default to the API origin
 const WS_URL = import.meta.env.VITE_WS_URL ?? import.meta.env.VITE_API_URL ?? "http://localhost:8000";
@@ -15,6 +15,7 @@ interface ServerToClientEvents {
   task_completion_undone: (data: WsTaskCompletionUndone) => void;
   task_reset: (data: WsTaskReset) => void;
   member_presence: (data: WsMemberPresence) => void;
+  group_invite: (data: WsGroupInvite) => void;
   error: (data: { message: string }) => void;
 }
 

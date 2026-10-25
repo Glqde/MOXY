@@ -2,13 +2,10 @@
 import { useState, useEffect } from "react";
 import { Modal, useFormStyles } from "@/components/ui/Modal";
 import { useColors } from "@/lib/theme";
-import {
-  useSearchUsers,
-  useGroupMembers,
-  useGroups,
-} from "@/hooks/useQueries";
+import { useQueryClient } from "@tanstack/react-query";
+import { QK, useSearchUsers, useGroupMembers } from "@/hooks/useQueries";
 import { groupApi } from "@/api/services";
-import { useToastStore } from "@/store";
+import { useAuthStore, useToastStore } from "@/store";
 import type { GroupRead, UserPublic } from "@/types";
 
 function useDebounce<T>(value: T, delay = 350): T {
@@ -68,6 +65,10 @@ export function InviteMembersModal({ group, onClose }: Props) {
   const { data: searchResults = [], isFetching } = useSearchUsers(debouncedQuery);
   const { data: members = [], refetch: refetchMembers } = useGroupMembers(group.id);
   const memberIds = new Set(members.map((m) => m.user.id));
+  const qc = useQueryClient();
+  // Adding people and managing the link are admin-only on the server
+  const myId = useAuthStore((s) => s.user?.id);
+  const isAdmin = members.some((m) => m.user.id === myId && m.role === "admin");
 
   const [inviting, setInviting] = useState<string | null>(null);
   const [invited, setInvited] = useState<Set<string>>(new Set());
@@ -78,6 +79,7 @@ export function InviteMembersModal({ group, onClose }: Props) {
       await groupApi.invite(group.id, user.id);
       setInvited((s) => new Set([...s, user.id]));
       refetchMembers();
+      qc.invalidateQueries({ queryKey: QK.groups }); // sidebar member count
       addToast({ emoji: "👋", title: `${user.full_name} added to ${group.name}` });
     } catch (e: unknown) {
       const msg = (e as { message?: string }).message ?? "Could not invite user";
@@ -113,27 +115,6 @@ export function InviteMembersModal({ group, onClose }: Props) {
     }
   };
 
-  const [joinCode, setJoinCode] = useState("");
-  const [joining, setJoining] = useState(false);
-  const { data: myGroups = [], refetch: refetchGroups } = useGroups();
-
-  const handleJoin = async () => {
-    const code = joinCode.trim().split("/").pop() ?? "";
-    if (!code) return;
-    setJoining(true);
-    try {
-      const joined = await groupApi.joinByInvite(code);
-      refetchGroups();
-      addToast({ emoji: joined.icon, title: `Joined ${joined.name}!` });
-      onClose();
-    } catch (e: unknown) {
-      const msg = (e as { message?: string }).message ?? "Invalid invite code";
-      addToast({ emoji: "❌", title: msg, type: "error" });
-    } finally {
-      setJoining(false);
-    }
-  };
-
   return (
     <Modal title={`Invite to ${group.name}`} onClose={onClose} width={460}>
       <div style={{
@@ -146,6 +127,15 @@ export function InviteMembersModal({ group, onClose }: Props) {
       {/* ── Tab 1: Search ───────────────────────────────────────────────── */}
       {tab === "search" && (
         <div>
+          {!isAdmin && members.length > 0 && (
+            <div style={{
+              marginBottom: 14, padding: "10px 12px", borderRadius: 9,
+              background: C.bgElevated, border: `1px solid ${C.border}`,
+              color: C.textMuted, fontSize: 12,
+            }}>
+              Only group admins can add people. You can still share the invite link if there is one.
+            </div>
+          )}
           <div style={{ position: "relative", marginBottom: 16 }}>
             <span style={{
               position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
@@ -219,7 +209,7 @@ export function InviteMembersModal({ group, onClose }: Props) {
                         <span style={{ color: C.textSub, fontSize: 12 }}>Already in group</span>
                       ) : isInvited ? (
                         <span style={{ color: C.green, fontSize: 12 }}>✓ Added</span>
-                      ) : (
+                      ) : !isAdmin ? null : (
                         <button
                           onClick={() => handleInvite(user)}
                           disabled={!!isInviting}
@@ -273,23 +263,25 @@ export function InviteMembersModal({ group, onClose }: Props) {
                     color: copied ? C.green : "#fff",
                     fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all 0.2s",
                   }}>{copied ? "✓ Copied!" : "📋 Copy link"}</button>
-                  <button onClick={handleRegenerate} disabled={regenerating} style={{
+                  {isAdmin && <button onClick={handleRegenerate} disabled={regenerating} style={{
                     padding: "10px 14px", borderRadius: 9,
                     border: `1px solid ${C.border}`,
                     background: "transparent", color: C.textMuted,
                     fontSize: 12, cursor: "pointer", opacity: regenerating ? 0.5 : 1,
-                  }}>{regenerating ? "…" : "↺ New link"}</button>
+                  }}>{regenerating ? "…" : "↺ New link"}</button>}
                 </div>
               </>
             ) : (
               <div>
-                <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>
-                  This group doesn't have an invite link yet.
+                <div style={{ color: C.textMuted, fontSize: 13, marginBottom: isAdmin ? 12 : 0 }}>
+                  {isAdmin
+                    ? "This group doesn't have an invite link yet."
+                    : "This group doesn't have an invite link yet — ask an admin to create one."}
                 </div>
-                <button onClick={handleRegenerate} disabled={regenerating} style={{
+                {isAdmin && <button onClick={handleRegenerate} disabled={regenerating} style={{
                   width: "100%", padding: "10px", borderRadius: 9, border: "none",
                   background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer",
-                }}>{regenerating ? "Generating…" : "Generate invite link"}</button>
+                }}>{regenerating ? "Generating…" : "Generate invite link"}</button>}
               </div>
             )}
           </div>

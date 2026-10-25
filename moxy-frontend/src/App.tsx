@@ -1,8 +1,7 @@
 // src/App.tsx
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { useAuthInitializer } from "@/hooks/useAuth";
 import { useAuthStore } from "@/store";
 import { LoginPage } from "@/pages/LoginPage";
@@ -47,26 +46,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// After login, check if user was trying to reach a deep link (e.g. /join/:code)
-function PostLoginRedirect() {
-  const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  useEffect(() => {
-    if (!user) return;
-    const redirect = sessionStorage.getItem("moxy_post_login_redirect");
-    if (redirect) {
-      sessionStorage.removeItem("moxy_post_login_redirect");
-      navigate(redirect, { replace: true });
-    }
-  }, [user]);
-  return null;
-}
-
 function Root() {
   useAuthInitializer();
   return (
     <>
-      <PostLoginRedirect />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
