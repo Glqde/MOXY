@@ -257,6 +257,31 @@ class NotificationMarkRead(BaseModel):
     notification_ids: List[uuid.UUID] = Field(max_length=100)
 
 
+# ─── Group Chat ───────────────────────────────────────────────────────────────
+
+class ChatMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("body")
+    @classmethod
+    def not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Message can't be empty")
+        return v
+
+
+class ChatMessageRead(BaseModel):
+    id: uuid.UUID
+    group_id: uuid.UUID
+    kind: str
+    body: str
+    created_at: datetime
+    user: Optional[UserPublic] = None
+
+    model_config = {"from_attributes": True}
+
+
 # ─── Activity ─────────────────────────────────────────────────────────────────
 
 class ActivityLogRead(BaseModel):

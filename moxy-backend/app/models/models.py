@@ -15,6 +15,7 @@ Table overview:
   activity_logs       — immutable audit trail
   device_tokens       — push notification tokens
   user_settings       — per-user preferences
+  group_messages      — group chat (member text + automatic task updates)
 """
 import uuid
 from datetime import datetime
@@ -188,6 +189,8 @@ class GroupMember(UUIDMixin, TimestampMixin, Base):
     role: Mapped[GroupRole] = mapped_column(String(20), default=GroupRole.member, nullable=False)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     notification_muted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Messages after this are unread for the member; NULL = never opened chat
+    chat_last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     group: Mapped["Group"] = relationship("Group", back_populates="members")
     user: Mapped["User"] = relationship("User", back_populates="group_memberships")
@@ -312,6 +315,31 @@ class Notification(UUIDMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_notifications_user_unread", "user_id", "is_read"),
         Index("ix_notifications_user_created", "user_id", "created_at"),  # inbox listing
+    )
+
+
+# ─── Group Chat ───────────────────────────────────────────────────────────────
+
+class MessageKind(str, PyEnum):
+    text = "text"      # written by a member
+    system = "system"  # automatic, e.g. "completed 🍽️ Dishes"
+
+
+class GroupMessage(UUIDMixin, Base):
+    """A chat message in a group."""
+    __tablename__ = "group_messages"
+
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("groups.id", ondelete="CASCADE"), nullable=False)
+    # Kept if the author's account goes away, shown as "A former member"
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    kind: Mapped[MessageKind] = mapped_column(String(10), default=MessageKind.text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    user: Mapped[Optional["User"]] = relationship("User", lazy="raise")
+
+    __table_args__ = (
+        Index("ix_group_messages_group_created", "group_id", "created_at"),  # history + unread counts
     )
 
 

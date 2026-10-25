@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.realtime import emit_group_event
+from app.services.chat_service import message_event, new_message
 from app.models.models import (
     ActivityLog,
     GroupMember,
+    MessageKind,
     Notification,
     NotificationType,
     RecurrenceRule,
@@ -194,6 +196,8 @@ class TaskService:
 
         period_start = task.current_period_start or datetime.now(timezone.utc)
         completion = await self._do_complete(task, user, period_start, note)
+        chat_line = new_message(task.group_id, user, f"completed {task.emoji} {task.title}", MessageKind.system)
+        self.db.add(chat_line)
         await self.db.commit()
 
         await emit_group_event(
@@ -209,6 +213,7 @@ class TaskService:
                 "group_id": str(task.group_id),
             },
         )
+        await emit_group_event(task.group_id, message_event(chat_line))
         return completion
 
     async def _do_complete(
@@ -309,6 +314,8 @@ class TaskService:
             event_type="task_completion_undone",
             event_data={"task_title": task.title, "task_emoji": task.emoji},
         ))
+        chat_line = new_message(task.group_id, user, f"undid {task.emoji} {task.title}", MessageKind.system)
+        self.db.add(chat_line)
         await self.db.commit()
 
         await emit_group_event(
@@ -323,6 +330,7 @@ class TaskService:
                 "group_id": str(task.group_id),
             },
         )
+        await emit_group_event(task.group_id, message_event(chat_line))
         task.latest_completion = None
         return task
 

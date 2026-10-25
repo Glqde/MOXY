@@ -2,6 +2,7 @@
 import { apiClient } from "./client";
 import type {
   ActivityLogRead,
+  ChatMessage,
   FriendRequestRead,
   GroupCreate,
   GroupMemberRead,
@@ -123,4 +124,23 @@ export const notificationApi = {
 export const activityApi = {
   list: (params?: { group_id?: string; before?: string; limit?: number }) =>
     apiClient.get<ActivityLogRead[]>("/activity", { params }).then((r) => r.data),
+};
+
+// ─── Group chat ──────────────────────────────────────────────────────────────
+
+export const chatApi = {
+  list: (groupId: string, before?: string) =>
+    apiClient
+      .get<ChatMessage[]>(`/groups/${groupId}/messages`, { params: { before, limit: 50 } })
+      .then((r) => r.data),
+
+  send: (groupId: string, body: string) =>
+    apiClient.post<ChatMessage>(`/groups/${groupId}/messages`, { body }).then((r) => r.data),
+
+  remove: (groupId: string, messageId: string) =>
+    apiClient.delete(`/groups/${groupId}/messages/${messageId}`),
+
+  markRead: (groupId: string) => apiClient.post(`/groups/${groupId}/messages/read`),
+
+  unread: () => apiClient.get<Record<string, number>>("/chat/unread").then((r) => r.data),
 };

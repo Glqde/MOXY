@@ -47,7 +47,7 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
 
     # ── Rate Limiting ─────────────────────────────────────────────────────────
-    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_PER_MINUTE: int = 300  # per IP; chat and live refetches add up fast
     RATE_LIMIT_BURST: int = 20
 
     # ── Email ─────────────────────────────────────────────────────────────────

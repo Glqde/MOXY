@@ -2,16 +2,19 @@
 // TanStack Query hooks — centralized data fetching with caching + optimistic updates.
 
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type QueryClient,
   type UseMutationOptions,
 } from "@tanstack/react-query";
-import { activityApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
+import { activityApi, chatApi, groupApi, notificationApi, taskApi, userApi } from "@/api/services";
 import { useEffect } from "react";
 import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
-import type { TaskRead } from "@/types";
+import type { ChatMessage, TaskRead } from "@/types";
 
 // ─── Query keys (centralized to enable precise invalidation) ──────────────────
 
@@ -27,6 +30,8 @@ export const QK = {
   friends: ["friends"] as const,
   activityAll: ["activity"] as const,
   activity: (groupId?: string) => ["activity", groupId ?? "all"] as const,
+  chat: (groupId: string) => ["chat", groupId] as const,
+  chatUnread: ["chat", "unread"] as const,
 };
 
 // ─── User ─────────────────────────────────────────────────────────────────────
@@ -240,6 +245,45 @@ export function useEmergencyReset(groupId: string) {
       addToast({ emoji: "🔄", title: "Task reset" });
     },
   });
+}
+
+// ─── Group chat ──────────────────────────────────────────────────────────────
+// Pages go backwards in time: pages[0] is the newest 50, each next page is
+// older. Each page is oldest → newest.
+
+const CHAT_PAGE = 50;
+type ChatPages = InfiniteData<ChatMessage[], string | undefined>;
+
+export function useChatMessages(groupId: string) {
+  return useInfiniteQuery({
+    queryKey: QK.chat(groupId),
+    queryFn: ({ pageParam }) => chatApi.list(groupId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (oldestFirst) =>
+      oldestFirst.length < CHAT_PAGE ? undefined : oldestFirst[0].created_at,
+    enabled: !!groupId,
+    staleTime: Infinity, // kept current by realtime events
+  });
+}
+
+/** Adds a message pushed over the socket (ignores duplicates). */
+export function addChatMessage(qc: QueryClient, message: ChatMessage) {
+  qc.setQueryData<ChatPages>(QK.chat(message.group_id), (data) => {
+    if (!data) return data;
+    if (data.pages.some((p) => p.some((m) => m.id === message.id))) return data;
+    const [newest, ...older] = data.pages;
+    return { ...data, pages: [[...(newest ?? []), message], ...older] };
+  });
+}
+
+export function removeChatMessage(qc: QueryClient, groupId: string, messageId: string) {
+  qc.setQueryData<ChatPages>(QK.chat(groupId), (data) =>
+    data && { ...data, pages: data.pages.map((p) => p.filter((m) => m.id !== messageId)) }
+  );
+}
+
+export function useChatUnread() {
+  return useQuery({ queryKey: QK.chatUnread, queryFn: chatApi.unread, staleTime: 30_000 });
 }
 
 // ─── Activity ─────────────────────────────────────────────────────────────────

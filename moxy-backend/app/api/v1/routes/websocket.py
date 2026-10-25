@@ -12,6 +12,8 @@ Events emitted to clients:
   - task_completed / task_completion_undone / task_reset
   - member_presence   — member came online / went offline
   - notification      — personal notification
+  - chat_message / chat_message_deleted — group chat
+  - typing            — someone is writing in a group's chat
 """
 import uuid
 
@@ -36,6 +38,15 @@ async def _user_group_ids(user_id: uuid.UUID, group_id: uuid.UUID | None = None)
     async with AsyncSessionLocal() as db:
         result = await db.execute(q)
         return [str(gid) for gid in result.scalars().all()]
+
+
+async def _display_name(user_id: uuid.UUID) -> str:
+    from app.db.session import AsyncSessionLocal
+    from app.models.models import User
+
+    async with AsyncSessionLocal() as db:
+        name = await db.scalar(select(User.full_name).where(User.id == user_id))
+    return name or "Someone"
 
 
 async def _broadcast_presence(sid: str, user_id: str, online: bool) -> None:
@@ -67,7 +78,7 @@ async def connect(sid: str, environ: dict, auth: dict):
         logger.warning("ws.connect.rejected", sid=sid, reason="invalid token")
         return False
 
-    await sio.save_session(sid, {"user_id": user_id})
+    await sio.save_session(sid, {"user_id": user_id, "name": await _display_name(uuid.UUID(user_id))})
     await sio.enter_room(sid, f"user:{user_id}")
     for gid in await _user_group_ids(uuid.UUID(user_id)):
         await sio.enter_room(sid, f"group:{gid}")
@@ -133,6 +144,23 @@ async def leave_group(sid: str, data: dict):
     group_id = (data or {}).get("group_id")
     if group_id:
         await sio.leave_room(sid, f"group:{group_id}")
+
+
+@sio.event
+async def typing(sid: str, data: dict):
+    """Relays "X is typing…" to the rest of a group the socket is in."""
+    session = await sio.get_session(sid)
+    group_id = (data or {}).get("group_id")
+    room = f"group:{group_id}"
+    # Only rooms this socket was admitted to (membership checked on join)
+    if not session or not group_id or room not in sio.rooms(sid):
+        return
+    await sio.emit(
+        "typing",
+        {"event": "typing", "group_id": group_id, "user_id": session["user_id"], "name": session.get("name")},
+        room=room,
+        skip_sid=sid,
+    )
 
 
 @sio.event

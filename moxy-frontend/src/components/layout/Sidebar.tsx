@@ -1,7 +1,7 @@
 // src/components/layout/Sidebar.tsx
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useUnreadCount } from "@/hooks/useQueries";
+import { useChatUnread, useUnreadCount } from "@/hooks/useQueries";
 import { useToastStore, useUIStore } from "@/store";
 import { playSound } from "@/lib/sounds";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
@@ -173,6 +173,7 @@ export function Sidebar({ groups, width = 220 }: SidebarProps) {
   const { user, signOut } = useAuth();
   const { activeGroupId, activePage, setActiveGroup, setActivePage, toggleCreateGroup, toggleInviteMembers } = useUIStore();
   const { data: unreadCount = 0 } = useUnreadCount();
+  const { data: chatUnread = {} } = useChatUnread();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [editingGroup, setEditingGroup] = useState<GroupRead | null>(null);
   const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
@@ -294,6 +295,12 @@ export function Sidebar({ groups, width = 220 }: SidebarProps) {
                   flex: 1, overflow: "hidden", textOverflow: "ellipsis",
                   whiteSpace: "nowrap", fontWeight: isActive ? 500 : 400,
                 }}>{g.name}</span>
+                {(chatUnread[g.id] ?? 0) > 0 && (
+                  <span title="Unread messages" style={{
+                    fontSize: 10, fontWeight: 600, color: "#fff", background: C.red,
+                    padding: "1px 6px", borderRadius: 10,
+                  }}>💬 {chatUnread[g.id] > 99 ? "99+" : chatUnread[g.id]}</span>
+                )}
                 <span style={{
                   fontSize: 10, color: C.textSub,
                   background: C.border,

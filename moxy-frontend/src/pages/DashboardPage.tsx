@@ -3,8 +3,9 @@ import { useState, useRef, useEffect } from "react";
 import { useAuthStore, useUIStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
+import { useChatUnread, useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
 import { groupApi, taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
@@ -343,7 +344,8 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
 // ── Dashboard Page ─────────────────────────────────────────────────────────────
 export function DashboardPage() {
   const C = useColors();
-  const { activeGroupId, toggleNotifPanel, toggleCreateTask, toggleInviteMembers } = useUIStore();
+  const { activeGroupId, toggleNotifPanel, toggleCreateTask, toggleInviteMembers, groupTab, setGroupTab } = useUIStore();
+  const { data: chatUnread = {} } = useChatUnread();
   // Subscribe to the set itself so presence changes re-render the member list
   const onlineUsers = usePresenceStore((s) => s.onlineUsers);
   const isOnline = (userId: string) => onlineUsers.has(userId);
@@ -412,7 +414,12 @@ export function DashboardPage() {
   const completed = tasks.filter((t) => t.is_completed_this_period);
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "16px" : "24px" }}>
+    <div style={{
+      flex: 1, padding: isMobile ? "16px" : "24px",
+      // Chat scrolls inside its own panel; the task list scrolls the page
+      display: "flex", flexDirection: "column", minHeight: 0,
+      overflowY: groupTab === "chat" ? "hidden" : "auto",
+    }}>
       {editingTask && (
         <EditTaskModal task={editingTask} groupId={group.id} onClose={() => setEditingTask(null)} />
       )}
@@ -469,6 +476,32 @@ export function DashboardPage() {
         </div>
       </div>
 
+      {/* Tasks | Chat */}
+      <div role="tablist" style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: isMobile ? 14 : 18, flexShrink: 0 }}>
+        {(["tasks", "chat"] as const).map((t) => {
+          const active = groupTab === t;
+          const unread = t === "chat" ? chatUnread[group.id] ?? 0 : 0;
+          return (
+            <button key={t} role="tab" aria-selected={active} onClick={() => setGroupTab(t)} style={{
+              padding: "8px 14px", border: "none", background: "transparent", cursor: "pointer",
+              color: active ? C.text : C.textMuted, fontSize: 13, fontWeight: active ? 600 : 400,
+              borderBottom: `2px solid ${active ? group.color : "transparent"}`, marginBottom: -1,
+              display: "flex", alignItems: "center", gap: 6,
+            }}>
+              {t === "tasks" ? "✅ Tasks" : "💬 Chat"}
+              {unread > 0 && (
+                <span style={{ background: C.red, color: "#fff", fontSize: 10, fontWeight: 600, borderRadius: 10, padding: "1px 6px" }}>
+                  {unread > 99 ? "99+" : unread}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {groupTab === "chat" ? (
+        <ChatPanel groupId={group.id} groupColor={group.color} myId={myId} iAmAdmin={iAmAdmin} />
+      ) : (<>
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: isMobile ? 8 : 12, marginBottom: isMobile ? 16 : 24 }}>
         {[
@@ -557,6 +590,8 @@ export function DashboardPage() {
           <div style={{ fontSize: 13 }}>Add the first shared task for your group</div>
         </div>
       )}
+
+      </>)}
 
       <style>{`
         @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }

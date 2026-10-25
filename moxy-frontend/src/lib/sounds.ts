@@ -4,7 +4,7 @@
 
 import { useUIStore } from "@/store";
 
-export type SoundName = "complete" | "undo" | "create" | "delete";
+export type SoundName = "complete" | "undo" | "create" | "delete" | "message";
 
 // [frequency Hz, start offset s] — rising chime for completions, softer
 // falling pair for undos, quick bright pop for creating, low drop for deleting
@@ -13,6 +13,7 @@ const TONES: Record<SoundName, { notes: [number, number][]; gain: number }> = {
   undo: { notes: [[659, 0], [494, 0.11]], gain: 0.12 },
   create: { notes: [[880, 0], [1175, 0.06]], gain: 0.15 },
   delete: { notes: [[392, 0], [262, 0.1]], gain: 0.14 },
+  message: { notes: [[1047, 0], [1397, 0.07]], gain: 0.1 }, // short soft blip
 };
 
 let ctx: AudioContext | null = null;
