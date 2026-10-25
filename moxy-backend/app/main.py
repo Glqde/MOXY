@@ -109,7 +109,14 @@ def create_app() -> FastAPI:
                     headers={"Retry-After": "60"},
                 )
 
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Handled here, inside CORSMiddleware: Starlette's outermost error
+            # handler answers without CORS headers, which browsers report as
+            # an opaque "Network Error" instead of the server's message
+            logger.error("unhandled.exception", path=request.url.path, error=str(exc), exc_info=True)
+            response = JSONResponse(status_code=500, content={"detail": "An internal error occurred"})
         logger.info(
             "http.request",
             method=request.method,
