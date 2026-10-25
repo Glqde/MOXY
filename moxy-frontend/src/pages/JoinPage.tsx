@@ -9,6 +9,7 @@ import { groupApi } from "@/api/services";
 import { useAuthStore, useUIStore, useToastStore } from "@/store";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
+import { POST_LOGIN_REDIRECT_KEY } from "@/pages/AuthCallbackPage";
 
 export function JoinPage() {
   const { code } = useParams<{ code: string }>();
@@ -27,7 +28,7 @@ export function JoinPage() {
     if (!initialized) return;
     if (!user) {
       // Save intended destination, redirect to login
-      sessionStorage.setItem("moxy_post_login_redirect", `/join/${code}`);
+      sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, `/join/${code}`);
       navigate("/login", { replace: true });
       return;
     }

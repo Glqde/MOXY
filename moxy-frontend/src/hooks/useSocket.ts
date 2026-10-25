@@ -18,7 +18,7 @@ import { QK } from "./useQueries";
 import { playSound } from "@/lib/sounds";
 import { notifyDesktop } from "@/lib/desktopNotify";
 import type {
-  TaskRead, WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
+  TaskRead, WsGroupInvite, WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
 } from "@/types";
 
 interface UseSocketOptions {
@@ -87,6 +87,16 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       else setOffline(data.user_id);
     };
 
+    // Someone added us to a group: show it in the sidebar straight away
+    const handleGroupInvite = (data: WsGroupInvite) => {
+      qc.invalidateQueries({ queryKey: QK.groups });
+      qc.invalidateQueries({ queryKey: QK.notifications });
+      const title = `${data.invited_by_name} added you to ${data.group_name}`;
+      addToast({ emoji: data.group_icon, title });
+      playSound("create");
+      notifyDesktop(`${data.group_icon} ${title}`, "MOXY", `group-${data.group_id}`);
+    };
+
     const handleConnect = () => {
       setConnected(true);
       setOnline(userId); // the server doesn't echo our own presence back to us
@@ -101,6 +111,7 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
     socket.on("task_completion_undone", handleTaskUndone);
     socket.on("task_reset", handleTaskReset);
     socket.on("member_presence", handlePresence);
+    socket.on("group_invite", handleGroupInvite);
     if (socket.connected) setConnected(true);
 
     const heartbeat = setInterval(() => socket.emit("heartbeat", {}), 30_000);
@@ -113,6 +124,7 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       socket.off("task_completion_undone", handleTaskUndone);
       socket.off("task_reset", handleTaskReset);
       socket.off("member_presence", handlePresence);
+      socket.off("group_invite", handleGroupInvite);
       disconnectSocket();
       setConnected(false);
     };

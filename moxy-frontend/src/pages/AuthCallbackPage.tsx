@@ -1,11 +1,14 @@
 // src/pages/AuthCallbackPage.tsx
 // Handles the OAuth redirect from Supabase after Google sign-in.
 // Supabase automatically exchanges the code in the URL hash; we redirect
-// once the auth store has the user.
+// once the auth store has the user — back to the invite link (or other deep
+// link) the visitor was opening before sign-in, if there was one.
 
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/store";
+
+export const POST_LOGIN_REDIRECT_KEY = "moxy_post_login_redirect";
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -14,8 +17,13 @@ export function AuthCallbackPage() {
 
   // Leave as soon as Supabase has exchanged the code and /me has loaded
   useEffect(() => {
-    if (user) navigate("/", { replace: true });
-    else if (initialized) navigate("/login", { replace: true });
+    if (user) {
+      const redirect = sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+      sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+      navigate(redirect || "/", { replace: true });
+    } else if (initialized) {
+      navigate("/login", { replace: true });
+    }
   }, [user, initialized]);
 
   return (

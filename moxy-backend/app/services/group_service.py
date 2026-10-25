@@ -11,7 +11,7 @@ from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.models import Group, GroupMember, GroupRole
+from app.models.models import Group, GroupMember, GroupRole, Notification, NotificationType, User
 from app.schemas.schemas import GroupCreate, GroupUpdate
 
 
@@ -112,6 +112,24 @@ class GroupService:
         await self.db.flush()
         return member
 
+    async def invite(self, group_id: uuid.UUID, user_id: uuid.UUID, invited_by: User) -> GroupMember:
+        """Admin adds someone directly; they get an in-app notification."""
+        if not await self.db.get(User, user_id):
+            raise HTTPException(404, "User not found")
+        member = await self.add_member(group_id, user_id)
+        group = await self.db.get(Group, group_id)
+        self.db.add(Notification(
+            user_id=user_id,
+            type=NotificationType.group_invite,
+            title=f"{group.icon} You were added to {group.name}",
+            body=f"{invited_by.full_name} added you to this group",
+            actor_id=invited_by.id,
+            group_id=group_id,
+            extra_data={"group_icon": group.icon, "inviter_name": invited_by.full_name},
+        ))
+        await self.db.flush()
+        return member
+
     async def _ensure_not_last_admin(self, member: GroupMember) -> None:
         if member.role != GroupRole.admin:
             return
@@ -156,5 +174,7 @@ class GroupService:
         group = result.scalar_one_or_none()
         if not group:
             raise HTTPException(404, "Invalid invite code")
-        await self.add_member(group.id, user_id)
+        # Opening a link you've already used just takes you to the group
+        if not await self.get_membership(group.id, user_id):
+            await self.add_member(group.id, user_id)
         return await self.get_by_id(group.id)

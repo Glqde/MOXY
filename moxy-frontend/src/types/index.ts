@@ -187,6 +187,14 @@ export interface WsTaskReset {
   group_id: string;
 }
 
+export interface WsGroupInvite {
+  event: "group_invite";
+  group_id: string;
+  group_name: string;
+  group_icon: string;
+  invited_by_name: string;
+}
+
 export interface WsMemberPresence {
   event: "member_presence";
   user_id: string;

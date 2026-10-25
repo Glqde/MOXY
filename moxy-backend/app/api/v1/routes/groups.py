@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_group_admin
+from app.core.realtime import emit_user_event
 from app.core.redis import get_online_members, get_redis
 from app.db.session import get_db
-from app.models.models import GroupMember, User
+from app.models.models import Group, GroupMember, User
 from app.schemas.schemas import (
     GroupCreate, GroupMemberRead, GroupRead, GroupUpdate,
     InviteMemberRequest, UpdateMemberRoleRequest,
@@ -126,8 +127,19 @@ async def invite_member(
 ):
     svc = GroupService(db)
     await _require_admin(svc, group_id, current_user)
-    member = await svc.add_member(group_id, payload.user_id)
-    return await _member_read(svc, member)
+    member = await svc.invite(group_id, payload.user_id, invited_by=current_user)
+    member = await _member_read(svc, member)
+    await db.commit()
+    # Lets the added person's open app show the group and a popup right away
+    group = await svc.db.get(Group, group_id)
+    await emit_user_event(payload.user_id, {
+        "event": "group_invite",
+        "group_id": str(group_id),
+        "group_name": group.name,
+        "group_icon": group.icon,
+        "invited_by_name": current_user.full_name,
+    })
+    return member
 
 
 @router.delete("/{group_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
