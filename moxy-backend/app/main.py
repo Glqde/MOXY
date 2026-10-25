@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.redis import init_redis, close_redis, check_rate_limit, get_redis
 from app.db.session import get_db, get_db_context
-from app.api.v1.routes import activity, tasks, groups, users, notifications
+from app.api.v1.routes import activity, chat, tasks, groups, users, notifications
 from app.api.v1.routes.websocket import wrap_with_socketio
 from app.core.realtime import room_leave_listener
 from app.services.task_service import run_due_task_resets
@@ -185,6 +185,7 @@ def create_app() -> FastAPI:
     app.include_router(tasks.router, prefix=api_prefix)
     app.include_router(notifications.router, prefix=api_prefix)
     app.include_router(activity.router, prefix=api_prefix)
+    app.include_router(chat.router, prefix=api_prefix)
 
     return app
 

@@ -13,12 +13,13 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getSocket, disconnectSocket } from "@/lib/socket";
-import { useAuthStore, usePresenceStore, useToastStore, useUIStore } from "@/store";
-import { QK } from "./useQueries";
+import { useAuthStore, usePresenceStore, useToastStore, useTypingStore, useUIStore } from "@/store";
+import { QK, addChatMessage, removeChatMessage } from "./useQueries";
 import { playSound } from "@/lib/sounds";
 import { notifyDesktop } from "@/lib/desktopNotify";
 import type {
-  TaskRead, WsGroupInvite, WsMemberPresence, WsMemberRemoved, WsRemovedFromGroup,
+  GroupRead, TaskRead, WsChatMessage, WsChatMessageDeleted, WsGroupInvite, WsMemberPresence,
+  WsMemberRemoved, WsRemovedFromGroup, WsTyping,
   WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
 } from "@/types";
 
@@ -117,11 +118,41 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       qc.invalidateQueries({ queryKey: QK.groups }); // member counts
     };
 
+    // ── Group chat ─────────────────────────────────────────────────────────
+    const handleChatMessage = (data: WsChatMessage) => {
+      addChatMessage(qc, data);
+      if (data.user) useTypingStore.getState().clearTyping(data.group_id, data.user.id);
+      if (data.kind !== "text" || data.user?.id === userId) return;
+
+      const ui = useUIStore.getState();
+      const viewing = ui.activePage === "dashboard" && ui.activeGroupId === data.group_id
+        && ui.groupTab === "chat" && document.visibilityState === "visible";
+      if (viewing) return; // ChatPanel marks it read
+
+      qc.setQueryData<Record<string, number>>(QK.chatUnread, (u) => ({ ...u, [data.group_id]: (u?.[data.group_id] ?? 0) + 1 }));
+      const group = qc.getQueryData<GroupRead[]>(QK.groups)?.find((g) => g.id === data.group_id);
+      const sender = data.user?.full_name.split(" ")[0] ?? "Someone";
+      const preview = data.body.length > 80 ? `${data.body.slice(0, 80)}…` : data.body;
+      addToast({ emoji: "💬", title: `${sender}: ${preview}`, sub: group ? `${group.icon} ${group.name}` : undefined, type: "info" });
+      playSound("message");
+      notifyDesktop(`💬 ${sender}${group ? ` · ${group.name}` : ""}`, preview, `chat-${data.group_id}`);
+    };
+
+    const handleChatMessageDeleted = (data: WsChatMessageDeleted) => {
+      removeChatMessage(qc, data.group_id, data.message_id);
+      qc.invalidateQueries({ queryKey: QK.chatUnread });
+    };
+
+    const handleTyping = (data: WsTyping) => {
+      useTypingStore.getState().setTyping(data.group_id, data.user_id, data.name);
+    };
+
     const handleConnect = () => {
       setConnected(true);
       setOnline(userId); // the server doesn't echo our own presence back to us
       // Catch up on anything missed while disconnected
       qc.invalidateQueries({ queryKey: ["tasks"] });
+      qc.invalidateQueries({ queryKey: ["chat"] });
     };
     const handleDisconnect = () => setConnected(false);
 
@@ -134,6 +165,9 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
     socket.on("group_invite", handleGroupInvite);
     socket.on("removed_from_group", handleRemovedFromGroup);
     socket.on("member_removed", handleMemberRemoved);
+    socket.on("chat_message", handleChatMessage);
+    socket.on("chat_message_deleted", handleChatMessageDeleted);
+    socket.on("typing", handleTyping);
     if (socket.connected) setConnected(true);
 
     const heartbeat = setInterval(() => socket.emit("heartbeat", {}), 30_000);
@@ -149,6 +183,9 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       socket.off("group_invite", handleGroupInvite);
       socket.off("removed_from_group", handleRemovedFromGroup);
       socket.off("member_removed", handleMemberRemoved);
+      socket.off("chat_message", handleChatMessage);
+      socket.off("chat_message_deleted", handleChatMessageDeleted);
+      socket.off("typing", handleTyping);
       disconnectSocket();
       setConnected(false);
     };

@@ -47,6 +47,7 @@ interface UIState {
   showCreateGroup: boolean;
   showInviteMembers: boolean;
   showMobileNav: boolean; // slide-out sidebar on phones
+  groupTab: "tasks" | "chat";
   theme: "dark" | "light";
   soundEnabled: boolean;
   desktopNotifications: boolean;
@@ -59,6 +60,7 @@ interface UIState {
   toggleCreateGroup: () => void;
   toggleInviteMembers: () => void;
   setMobileNav: (open: boolean) => void;
+  setGroupTab: (tab: "tasks" | "chat") => void;
   setTheme: (t: "dark" | "light") => void;
   setSoundEnabled: (on: boolean) => void;
   setDesktopNotifications: (on: boolean) => void;
@@ -74,12 +76,13 @@ export const useUIStore = create<UIState>()(
       showCreateGroup: false,
       showInviteMembers: false,
       showMobileNav: false,
+      groupTab: "tasks",
       theme: "dark",
       soundEnabled: true,
       desktopNotifications: false, // needs browser permission first
 
       // Navigating also closes the phone slide-out menu
-      setActiveGroup: (id) => set({ activeGroupId: id, activePage: "dashboard", showMobileNav: false }),
+      setActiveGroup: (id) => set({ activeGroupId: id, activePage: "dashboard", showMobileNav: false, groupTab: "tasks" }),
       setActivePage: (page) => set({ activePage: page, showMobileNav: false }),
       toggleNotifPanel: () => set((s) => ({ showNotifPanel: !s.showNotifPanel })),
       closeNotifPanel: () => set({ showNotifPanel: false }),
@@ -87,6 +90,7 @@ export const useUIStore = create<UIState>()(
       toggleCreateGroup: () => set((s) => ({ showCreateGroup: !s.showCreateGroup })),
       toggleInviteMembers: () => set((s) => ({ showInviteMembers: !s.showInviteMembers })),
       setMobileNav: (showMobileNav) => set({ showMobileNav }),
+      setGroupTab: (groupTab) => set({ groupTab }),
       setTheme: (theme) => set({ theme }),
       setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
       setDesktopNotifications: (desktopNotifications) => set({ desktopNotifications }),
@@ -135,6 +139,30 @@ export const usePresenceStore = create<PresenceState>()((set, get) => ({
       return { onlineUsers: next };
     }),
   isOnline: (userId) => get().onlineUsers.has(userId),
+}));
+
+// ─── Typing store ────────────────────────────────────────────────────────────
+// Who's typing in each group's chat; entries expire a few seconds after the
+// last "typing" signal.
+
+interface TypingState {
+  typing: Record<string, Record<string, { name: string; until: number }>>; // group → user → info
+  setTyping: (groupId: string, userId: string, name: string) => void;
+  clearTyping: (groupId: string, userId: string) => void;
+}
+
+export const useTypingStore = create<TypingState>()((set) => ({
+  typing: {},
+  setTyping: (groupId, userId, name) =>
+    set((s) => ({
+      typing: { ...s.typing, [groupId]: { ...s.typing[groupId], [userId]: { name, until: Date.now() + 4000 } } },
+    })),
+  clearTyping: (groupId, userId) =>
+    set((s) => {
+      const group = { ...s.typing[groupId] };
+      delete group[userId];
+      return { typing: { ...s.typing, [groupId]: group } };
+    }),
 }));
 
 // ─── Toast store ─────────────────────────────────────────────────────────────

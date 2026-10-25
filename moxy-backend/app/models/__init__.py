@@ -2,11 +2,11 @@
 from app.models.models import (
     User, FriendRequest, Friendship, Group, GroupMember,
     Task, RecurrenceRule, TaskCompletion,
-    Notification, ActivityLog, DeviceToken, UserSettings,
+    Notification, ActivityLog, DeviceToken, UserSettings, GroupMessage,
 )
 
 __all__ = [
     "User", "FriendRequest", "Friendship", "Group", "GroupMember",
     "Task", "RecurrenceRule", "TaskCompletion",
-    "Notification", "ActivityLog", "DeviceToken", "UserSettings",
+    "Notification", "ActivityLog", "DeviceToken", "UserSettings", "GroupMessage",
 ]

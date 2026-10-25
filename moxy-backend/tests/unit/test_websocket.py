@@ -23,12 +23,13 @@ async def test_connect_authenticates_and_joins_group_rooms():
     with patch.object(websocket, "sio", sio), \
          patch("app.core.auth.decode_supabase_jwt", AsyncMock(return_value={"sub": user_id})), \
          patch.object(websocket, "_user_group_ids", AsyncMock(return_value=[group_id])), \
+         patch.object(websocket, "_display_name", AsyncMock(return_value="Asha")), \
          patch.object(websocket, "add_connection", AsyncMock()), \
          patch.object(websocket, "get_redis", MagicMock()):
         result = await websocket.connect("sid1", {}, {"token": "jwt"})
 
     assert result is None  # None = accept
-    sio.save_session.assert_awaited_once_with("sid1", {"user_id": user_id})
+    sio.save_session.assert_awaited_once_with("sid1", {"user_id": user_id, "name": "Asha"})
     rooms = [c.args[1] for c in sio.enter_room.await_args_list]
     assert rooms == [f"user:{user_id}", f"group:{group_id}"]
     # presence goes to the group room, not back to the connecting socket

@@ -155,7 +155,35 @@ export interface ActivityLogRead {
   occurred_at: string;
 }
 
+// ─── Group chat ──────────────────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  group_id: string;
+  kind: "text" | "system"; // system = automatic task line, e.g. "completed 🍽️ Dishes"
+  body: string;
+  created_at: string;
+  user: UserPublic | null;
+}
+
 // ─── WebSocket Events (Redis → client) ───────────────────────────────────────
+
+export interface WsChatMessage extends ChatMessage {
+  event: "chat_message";
+}
+
+export interface WsChatMessageDeleted {
+  event: "chat_message_deleted";
+  group_id: string;
+  message_id: string;
+}
+
+export interface WsTyping {
+  event: "typing";
+  group_id: string;
+  user_id: string;
+  name: string;
+}
 
 export interface WsTaskCompleted {
   event: "task_completed";

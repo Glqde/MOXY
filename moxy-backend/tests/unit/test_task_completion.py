@@ -75,7 +75,9 @@ class TestTaskCompletion:
         with patch.object(TaskService, "get_by_id", return_value=mock_task), \
              patch.object(TaskService, "_get_membership", return_value=MagicMock()), \
              patch.object(TaskService, "_notifiable_member_ids", return_value=[other_member]), \
-             patch("app.services.task_service.emit_group_event", emit):
+             patch("app.services.task_service.emit_group_event", emit), \
+             patch("app.services.task_service.new_message") as new_message, \
+             patch("app.services.task_service.message_event", return_value={"event": "chat_message"}):
 
             svc = TaskService(db=mock_db)
             result = await svc.complete_task(task_id=mock_task.id, user=user, group_id=mock_task.group_id)
@@ -84,12 +86,16 @@ class TestTaskCompletion:
         assert mock_task.is_completed_this_period is True
         assert mock_task.times_completed_total == 1
         assert mock_task.completion_streak == 6
-        assert order == ["commit", "emit"]
+        # task_completed and the chat line both go out only after the commit
+        assert order == ["commit", "emit", "emit"]
+        assert new_message.call_args.args[2] == "completed 🐱 Feed the Cat"
 
         notifications = mock_db.add_all.call_args.args[0]
         assert [n.user_id for n in notifications] == [other_member]
         assert all(isinstance(n, Notification) for n in notifications)
-        assert emit.call_args.args[1]["completed_by_name"] == "Asha"
+        events = [c.args[1] for c in emit.call_args_list]
+        assert events[0]["event"] == "task_completed" and events[0]["completed_by_name"] == "Asha"
+        assert events[1] == {"event": "chat_message"}
 
     @pytest.mark.asyncio
     async def test_complete_already_done_period(self, mock_task, mock_db, user):

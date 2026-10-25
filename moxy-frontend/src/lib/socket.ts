@@ -5,7 +5,7 @@
 import { io, Socket } from "socket.io-client";
 import { supabase } from "@/lib/supabase";
 import type {
-  WsGroupInvite, WsMemberPresence, WsMemberRemoved, WsRemovedFromGroup,
+  WsChatMessage, WsChatMessageDeleted, WsGroupInvite, WsMemberPresence, WsMemberRemoved, WsRemovedFromGroup, WsTyping,
   WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
 } from "@/types";
 
@@ -21,6 +21,9 @@ interface ServerToClientEvents {
   group_invite: (data: WsGroupInvite) => void;
   removed_from_group: (data: WsRemovedFromGroup) => void;
   member_removed: (data: WsMemberRemoved) => void;
+  chat_message: (data: WsChatMessage) => void;
+  chat_message_deleted: (data: WsChatMessageDeleted) => void;
+  typing: (data: WsTyping) => void;
   error: (data: { message: string }) => void;
 }
 
@@ -28,6 +31,7 @@ interface ClientToServerEvents {
   join_group: (data: { group_id: string }) => void;
   leave_group: (data: { group_id: string }) => void;
   heartbeat: (data: Record<string, never>) => void;
+  typing: (data: { group_id: string }) => void;
 }
 
 export type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
