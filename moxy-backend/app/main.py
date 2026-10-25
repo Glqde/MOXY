@@ -18,6 +18,7 @@ from app.core.redis import init_redis, close_redis, check_rate_limit, get_redis
 from app.db.session import get_db, get_db_context
 from app.api.v1.routes import activity, tasks, groups, users, notifications
 from app.api.v1.routes.websocket import wrap_with_socketio
+from app.core.realtime import room_leave_listener
 from app.services.task_service import run_due_task_resets
 
 configure_logging()
@@ -55,13 +56,15 @@ async def lifespan(app: FastAPI):
         logger.info("db.tables.created", env="development")
 
     scheduler = asyncio.create_task(_scheduler_loop()) if settings.ENABLE_SCHEDULER else None
+    room_leaves = asyncio.create_task(room_leave_listener())
 
     yield
 
-    if scheduler:
-        scheduler.cancel()
-        with suppress(asyncio.CancelledError):
-            await scheduler
+    for task in (scheduler, room_leaves):
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
     await close_redis()
     logger.info("moxy.shutdown")
 

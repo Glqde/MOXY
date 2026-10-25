@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user, require_group_admin
-from app.core.realtime import emit_user_event
+from app.core.realtime import drop_user_from_group_room, emit_group_event, emit_user_event
 from app.core.redis import get_online_members, get_redis
 from app.db.session import get_db
-from app.models.models import Group, GroupMember, User
+from app.models.models import Group, GroupMember, Notification, NotificationType, User
 from app.schemas.schemas import (
     GroupCreate, GroupMemberRead, GroupRead, GroupUpdate,
     InviteMemberRequest, UpdateMemberRoleRequest,
@@ -34,6 +34,14 @@ async def _require_admin(svc: GroupService, group_id: uuid.UUID, user: User) -> 
     return membership
 
 
+def _group_read(group: Group, role: str) -> GroupRead:
+    """Only admins get the invite code — anyone holding it can join the group."""
+    data = GroupRead.model_validate(group)
+    if role != "admin":
+        data = data.model_copy(update={"invite_code": None})
+    return data
+
+
 async def _member_read(svc: GroupService, member: GroupMember) -> GroupMember:
     """Loads .user so the member serializes as GroupMemberRead."""
     await svc.db.refresh(member, attribute_names=["user"])
@@ -45,7 +53,8 @@ async def list_my_groups(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await GroupService(db).get_user_groups(current_user.id)
+    groups = await GroupService(db).get_user_groups(current_user.id)
+    return [_group_read(group, role) for group, role in groups]
 
 
 @router.post("", response_model=GroupRead, status_code=status.HTTP_201_CREATED)
@@ -64,11 +73,11 @@ async def get_group(
     current_user: User = Depends(get_current_user),
 ):
     svc = GroupService(db)
-    await _require_member(svc, group_id, current_user)
+    membership = await _require_member(svc, group_id, current_user)
     group = await svc.get_by_id(group_id)
     if not group:
         raise HTTPException(404, "Group not found")
-    return group
+    return _group_read(group, membership.role)
 
 
 @router.patch("/{group_id}", response_model=GroupRead)
@@ -151,11 +160,38 @@ async def remove_member(
 ):
     svc = GroupService(db)
     membership = await _require_member(svc, group_id, current_user)
+    kicked = user_id != current_user.id
     # Admins can remove anyone; members can only remove themselves
-    if membership.role != "admin" and user_id != current_user.id:
+    if membership.role != "admin" and kicked:
         raise HTTPException(403, "Only admins can remove other members")
-    if not await svc.remove_member(group_id, user_id):
+    group = await svc.get_by_id(group_id)
+    if not group or not await svc.remove_member(group_id, user_id):
         raise HTTPException(404, "Member not found")
+    if kicked:
+        db.add(Notification(
+            user_id=user_id,
+            type=NotificationType.system,
+            title=f"{group.icon} You were removed from {group.name}",
+            body=f"{current_user.full_name} removed you from this group",
+            actor_id=current_user.id,
+            group_id=group_id,
+        ))
+    await db.commit()
+
+    # Cut their live access first, then tell them and the rest of the group
+    await drop_user_from_group_room(user_id, group_id)
+    await emit_user_event(user_id, {
+        "event": "removed_from_group",
+        "group_id": str(group_id),
+        "group_name": group.name,
+        "group_icon": group.icon,
+        "removed_by_name": current_user.full_name if kicked else None,
+    })
+    await emit_group_event(group_id, {
+        "event": "member_removed",
+        "group_id": str(group_id),
+        "user_id": str(user_id),
+    })
 
 
 @router.patch("/{group_id}/members/{user_id}/role", response_model=GroupMemberRead)
@@ -180,7 +216,10 @@ async def join_by_invite(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return await GroupService(db).join_by_invite(invite_code, current_user.id)
+    svc = GroupService(db)
+    group = await svc.join_by_invite(invite_code, current_user.id)
+    membership = await svc.get_membership(group.id, current_user.id)
+    return _group_read(group, membership.role)
 
 
 @router.post("/{group_id}/invite-code/regenerate")

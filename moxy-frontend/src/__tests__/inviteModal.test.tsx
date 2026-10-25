@@ -83,13 +83,22 @@ describe("InviteMembersModal", () => {
     expect(document.body.textContent).toContain("Only group admins can add people");
     await openLinkTab();
     expect(buttons()).not.toContain("Generate invite link");
-    expect(document.body.textContent).toContain("ask an admin");
+    expect(document.body.textContent).toContain("Only group admins can share the invite link");
   });
 
-  it("members can still copy an existing link but not replace it", async () => {
+  it("members never see the invite link, even if a stale copy is cached", async () => {
     await render("member", "abc123");
     await openLinkTab();
-    expect(buttons()).toContain("📋 Copy link");
+    expect(document.body.textContent).not.toContain("abc123");
+    expect(buttons()).not.toContain("📋 Copy link");
     expect(buttons()).not.toContain("↺ New link");
+  });
+
+  it("admins can copy and replace an existing link", async () => {
+    await render("admin", "abc123");
+    await openLinkTab();
+    expect(document.body.textContent).toContain("/join/abc123");
+    expect(buttons()).toContain("📋 Copy link");
+    expect(buttons()).toContain("↺ New link");
   });
 });
