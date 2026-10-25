@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUnreadCount } from "@/hooks/useQueries";
 import { useToastStore, useUIStore } from "@/store";
 import { playSound } from "@/lib/sounds";
+import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useColors } from "@/lib/theme";
 import { groupApi } from "@/api/services";
@@ -182,7 +183,12 @@ export function Sidebar({ groups, width = 220 }: SidebarProps) {
     .split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase() ?? "?";
 
   const handleDeleteGroup = async (groupId: string) => {
-    if (!confirm("Delete this group? All tasks will be lost.")) return;
+    const ok = await confirmAction({
+      title: "Delete this group?",
+      message: "All of its tasks and history will be lost for every member. This can't be undone.",
+      confirmLabel: "Delete group",
+    });
+    if (!ok) return;
     try {
       await groupApi.delete(groupId);
       qc.invalidateQueries({ queryKey: QK.groups });

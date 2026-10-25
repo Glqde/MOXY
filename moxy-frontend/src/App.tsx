@@ -9,6 +9,7 @@ import { AuthCallbackPage } from "@/pages/AuthCallbackPage";
 import { JoinPage } from "@/pages/JoinPage";
 import { AppShell } from "@/components/layout/AppShell";
 import { ToastContainer } from "@/components/ui/ToastContainer";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,6 +74,7 @@ export default function App() {
       <BrowserRouter>
         <Root />
         <ToastContainer />
+        <ConfirmDialog />
         {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
       </BrowserRouter>
     </QueryClientProvider>
