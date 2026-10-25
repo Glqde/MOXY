@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuthStore, useUIStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
+import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
 import { groupApi, taskApi } from "@/api/services";
@@ -358,7 +359,12 @@ export function DashboardPage() {
 
   const handleRemoveMember = async (userId: string, name: string) => {
     if (!activeGroupId || !group) return;
-    if (!confirm(`Remove ${name} from ${group.name}? They'll lose access to its tasks.`)) return;
+    const ok = await confirmAction({
+      title: `Remove ${name}?`,
+      message: `${name} will be removed from ${group.name} and lose access to its tasks.`,
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
     try {
       await groupApi.removeMember(activeGroupId, userId);
       qc.invalidateQueries({ queryKey: QK.groupMembers(activeGroupId) });
@@ -378,7 +384,7 @@ export function DashboardPage() {
 
   const handleDelete = async (taskId: string) => {
     if (!activeGroupId) return;
-    if (!confirm("Delete this task?")) return;
+    if (!(await confirmAction({ title: "Delete this task?", message: "It will disappear for everyone in the group.", confirmLabel: "Delete" }))) return;
     try {
       await taskApi.delete(activeGroupId, taskId);
       qc.invalidateQueries({ queryKey: QK.tasks(activeGroupId) });
