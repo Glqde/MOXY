@@ -133,7 +133,7 @@ export function InviteMembersModal({ group, onClose }: Props) {
               background: C.bgElevated, border: `1px solid ${C.border}`,
               color: C.textMuted, fontSize: 12,
             }}>
-              Only group admins can add people. You can still share the invite link if there is one.
+              Only group admins can add people or share the invite link.
             </div>
           )}
           <div style={{ position: "relative", marginBottom: 16 }}>
@@ -239,7 +239,15 @@ export function InviteMembersModal({ group, onClose }: Props) {
       )}
 
       {/* ── Tab 2: Invite link ─────────────────────────────────────────── */}
-      {tab === "link" && (
+      {/* Admin-only: the server doesn't send the code to members either */}
+      {tab === "link" && !isAdmin && (
+        <div style={{ textAlign: "center", padding: "28px 8px", color: C.textMuted }}>
+          <div style={{ fontSize: 30, marginBottom: 10 }}>🔒</div>
+          <div style={{ fontSize: 14, color: C.text, marginBottom: 4 }}>Only group admins can share the invite link</div>
+          <div style={{ fontSize: 13 }}>Ask an admin to invite the person for you.</div>
+        </div>
+      )}
+      {tab === "link" && isAdmin && (
         <div>
           <div style={{
             padding: "16px", borderRadius: 12,
@@ -263,25 +271,23 @@ export function InviteMembersModal({ group, onClose }: Props) {
                     color: copied ? C.green : "#fff",
                     fontSize: 13, fontWeight: 500, cursor: "pointer", transition: "all 0.2s",
                   }}>{copied ? "✓ Copied!" : "📋 Copy link"}</button>
-                  {isAdmin && <button onClick={handleRegenerate} disabled={regenerating} style={{
+                  <button onClick={handleRegenerate} disabled={regenerating} style={{
                     padding: "10px 14px", borderRadius: 9,
                     border: `1px solid ${C.border}`,
                     background: "transparent", color: C.textMuted,
                     fontSize: 12, cursor: "pointer", opacity: regenerating ? 0.5 : 1,
-                  }}>{regenerating ? "…" : "↺ New link"}</button>}
+                  }}>{regenerating ? "…" : "↺ New link"}</button>
                 </div>
               </>
             ) : (
               <div>
-                <div style={{ color: C.textMuted, fontSize: 13, marginBottom: isAdmin ? 12 : 0 }}>
-                  {isAdmin
-                    ? "This group doesn't have an invite link yet."
-                    : "This group doesn't have an invite link yet — ask an admin to create one."}
+                <div style={{ color: C.textMuted, fontSize: 13, marginBottom: 12 }}>
+                  This group doesn't have an invite link yet.
                 </div>
-                {isAdmin && <button onClick={handleRegenerate} disabled={regenerating} style={{
+                <button onClick={handleRegenerate} disabled={regenerating} style={{
                   width: "100%", padding: "10px", borderRadius: 9, border: "none",
                   background: C.accent, color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer",
-                }}>{regenerating ? "Generating…" : "Generate invite link"}</button>}
+                }}>{regenerating ? "Generating…" : "Generate invite link"}</button>
               </div>
             )}
           </div>

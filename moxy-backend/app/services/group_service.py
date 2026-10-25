@@ -55,17 +55,18 @@ class GroupService:
         result = await self.db.execute(delete(Group).where(Group.id == group_id))
         return result.rowcount > 0
 
-    async def get_user_groups(self, user_id: uuid.UUID) -> List[Group]:
+    async def get_user_groups(self, user_id: uuid.UUID) -> List[tuple[Group, str]]:
+        """Returns (group, the user's role in it), with .member_count set."""
         result = await self.db.execute(
-            select(Group, _member_count_subquery())
+            select(Group, _member_count_subquery(), GroupMember.role)
             .join(GroupMember, GroupMember.group_id == Group.id)
             .where(GroupMember.user_id == user_id)
             .order_by(GroupMember.joined_at)
         )
         groups = []
-        for group, count in result.all():
+        for group, count, role in result.all():
             group.member_count = count
-            groups.append(group)
+            groups.append((group, role))
         return groups
 
     async def create(self, created_by: uuid.UUID, data: GroupCreate) -> Group:

@@ -13,12 +13,13 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getSocket, disconnectSocket } from "@/lib/socket";
-import { useAuthStore, usePresenceStore, useToastStore } from "@/store";
+import { useAuthStore, usePresenceStore, useToastStore, useUIStore } from "@/store";
 import { QK } from "./useQueries";
 import { playSound } from "@/lib/sounds";
 import { notifyDesktop } from "@/lib/desktopNotify";
 import type {
-  TaskRead, WsGroupInvite, WsMemberPresence, WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
+  TaskRead, WsGroupInvite, WsMemberPresence, WsMemberRemoved, WsRemovedFromGroup,
+  WsTaskCompleted, WsTaskCompletionUndone, WsTaskReset,
 } from "@/types";
 
 interface UseSocketOptions {
@@ -97,6 +98,25 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       notifyDesktop(`${data.group_icon} ${title}`, "MOXY", `group-${data.group_id}`);
     };
 
+    // An admin removed us: drop the group from the sidebar and leave its page
+    const handleRemovedFromGroup = (data: WsRemovedFromGroup) => {
+      qc.invalidateQueries({ queryKey: QK.groups });
+      qc.invalidateQueries({ queryKey: QK.notifications });
+      const ui = useUIStore.getState();
+      if (ui.activeGroupId === data.group_id) ui.setActiveGroup(null);
+      if (data.removed_by_name) {
+        const title = `${data.removed_by_name} removed you from ${data.group_name}`;
+        addToast({ emoji: data.group_icon, title, type: "info" });
+        playSound("delete");
+        notifyDesktop(`${data.group_icon} ${title}`, "MOXY", `group-${data.group_id}`);
+      }
+    };
+
+    const handleMemberRemoved = (data: WsMemberRemoved) => {
+      qc.invalidateQueries({ queryKey: QK.groupMembers(data.group_id) });
+      qc.invalidateQueries({ queryKey: QK.groups }); // member counts
+    };
+
     const handleConnect = () => {
       setConnected(true);
       setOnline(userId); // the server doesn't echo our own presence back to us
@@ -112,6 +132,8 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
     socket.on("task_reset", handleTaskReset);
     socket.on("member_presence", handlePresence);
     socket.on("group_invite", handleGroupInvite);
+    socket.on("removed_from_group", handleRemovedFromGroup);
+    socket.on("member_removed", handleMemberRemoved);
     if (socket.connected) setConnected(true);
 
     const heartbeat = setInterval(() => socket.emit("heartbeat", {}), 30_000);
@@ -125,6 +147,8 @@ export function useSocket({ groupIds, enabled = true }: UseSocketOptions) {
       socket.off("task_reset", handleTaskReset);
       socket.off("member_presence", handlePresence);
       socket.off("group_invite", handleGroupInvite);
+      socket.off("removed_from_group", handleRemovedFromGroup);
+      socket.off("member_removed", handleMemberRemoved);
       disconnectSocket();
       setConnected(false);
     };

@@ -195,6 +195,20 @@ export interface WsGroupInvite {
   invited_by_name: string;
 }
 
+export interface WsRemovedFromGroup {
+  event: "removed_from_group";
+  group_id: string;
+  group_name: string;
+  group_icon: string;
+  removed_by_name: string | null; // null when you left on your own
+}
+
+export interface WsMemberRemoved {
+  event: "member_removed";
+  group_id: string;
+  user_id: string;
+}
+
 export interface WsMemberPresence {
   event: "member_presence";
   user_id: string;

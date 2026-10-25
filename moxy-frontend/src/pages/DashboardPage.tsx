@@ -1,10 +1,10 @@
 // src/pages/DashboardPage.tsx
 import { useState, useRef, useEffect } from "react";
-import { useUIStore, usePresenceStore, useToastStore } from "@/store";
+import { useAuthStore, useUIStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGroups, useGroupMembers, useTasks, useCompleteTask, useUndoCompleteTask, useUnreadCount, useEmergencyReset } from "@/hooks/useQueries";
-import { taskApi } from "@/api/services";
+import { groupApi, taskApi } from "@/api/services";
 import { useQueryClient } from "@tanstack/react-query";
 import { QK } from "@/hooks/useQueries";
 import { useColors } from "@/lib/theme";
@@ -353,6 +353,24 @@ export function DashboardPage() {
 
   const { data: tasks = [], isLoading: tasksLoading } = useTasks(activeGroupId ?? "");
   const { data: members = [] } = useGroupMembers(activeGroupId ?? "");
+  const myId = useAuthStore((s) => s.user?.id);
+  const iAmAdmin = members.some((m) => m.user.id === myId && m.role === "admin");
+
+  const handleRemoveMember = async (userId: string, name: string) => {
+    if (!activeGroupId || !group) return;
+    if (!confirm(`Remove ${name} from ${group.name}? They'll lose access to its tasks.`)) return;
+    try {
+      await groupApi.removeMember(activeGroupId, userId);
+      qc.invalidateQueries({ queryKey: QK.groupMembers(activeGroupId) });
+      qc.invalidateQueries({ queryKey: QK.groups }); // sidebar member count
+      playSound("delete");
+      useToastStore.getState().addToast({ emoji: "👋", title: `${name} was removed from ${group.name}`, type: "info" });
+    } catch (e: unknown) {
+      // e.g. "A group needs at least one admin" when removing the last admin
+      const msg = (e as { message?: string }).message ?? "Couldn't remove member";
+      useToastStore.getState().addToast({ emoji: "❌", title: msg, type: "error" });
+    }
+  };
   const { data: unreadCount = 0 } = useUnreadCount();
 
   const [editingTask, setEditingTask] = useState<TaskRead | null>(null);
@@ -467,11 +485,28 @@ export function DashboardPage() {
             <div key={m.user.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Avatar letters={m.user.full_name} size={30} color={group.color} online={isOnline(m.user.id)} />
               <div>
-                <div style={{ color: C.text, fontSize: 12, fontWeight: 500 }}>{m.user.full_name.split(" ")[0]}</div>
+                <div style={{ color: C.text, fontSize: 12, fontWeight: 500 }}>
+                  {m.user.full_name.split(" ")[0]}
+                  {m.role === "admin" && <span title="Admin" style={{ color: C.accent, fontSize: 10, marginLeft: 4 }}>★</span>}
+                </div>
                 <div style={{ fontSize: 10, color: isOnline(m.user.id) ? C.green : C.textSub }}>
                   {isOnline(m.user.id) ? "Online" : "Offline"}
                 </div>
               </div>
+              {iAmAdmin && m.user.id !== myId && (
+                <button
+                  aria-label={`Remove ${m.user.full_name}`}
+                  title={`Remove ${m.user.full_name}`}
+                  onClick={() => handleRemoveMember(m.user.id, m.user.full_name)}
+                  style={{
+                    width: 22, height: 22, borderRadius: 6, border: `1px solid ${C.border}`,
+                    background: "transparent", color: C.textMuted, cursor: "pointer",
+                    fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = C.redSoft; e.currentTarget.style.color = C.red; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textMuted; }}
+                >✕</button>
+              )}
             </div>
           ))}
         </div>
