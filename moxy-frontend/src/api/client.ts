@@ -82,11 +82,20 @@ export interface ApiError {
   detail?: unknown;
 }
 
-function normalizeError(error: AxiosError): ApiError {
+// Validation errors (422) arrive as a list; show the first reason, minus
+// pydantic's "Value error, " prefix
+function validationMessage(detail: unknown): string | null {
+  if (!Array.isArray(detail)) return null;
+  const msg = (detail[0] as { msg?: unknown } | undefined)?.msg;
+  return typeof msg === "string" ? msg.replace(/^Value error, /, "") : null;
+}
+
+export function normalizeError(error: AxiosError): ApiError {
   const status = error.response?.status ?? 0;
   const data = error.response?.data as Record<string, unknown> | undefined;
   const message =
     (typeof data?.detail === "string" ? data.detail : null) ??
+    validationMessage(data?.detail) ??
     error.message ??
     "An unexpected error occurred";
 

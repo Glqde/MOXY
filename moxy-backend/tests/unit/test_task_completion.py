@@ -98,6 +98,23 @@ class TestTaskCompletion:
         assert events[1] == {"event": "chat_message"}
 
     @pytest.mark.asyncio
+    async def test_long_title_notification_fits_column(self, mock_task, mock_db, user):
+        """A 200-char title plus emoji and ' completed' must still fit VARCHAR(200)."""
+        mock_task.title = "T" * 200
+        mock_task.emoji = "👨‍👩‍👧‍👦"
+        with patch.object(TaskService, "get_by_id", return_value=mock_task), \
+             patch.object(TaskService, "_get_membership", return_value=MagicMock()), \
+             patch.object(TaskService, "_notifiable_member_ids", return_value=[uuid.uuid4()]), \
+             patch("app.services.task_service.emit_group_event", AsyncMock()), \
+             patch("app.services.task_service.new_message"), \
+             patch("app.services.task_service.message_event", return_value={}):
+            await TaskService(db=mock_db).complete_task(task_id=mock_task.id, user=user, group_id=mock_task.group_id)
+
+        title = mock_db.add_all.call_args.args[0][0].title
+        assert len(title) <= 200
+        assert title.endswith("… completed")
+
+    @pytest.mark.asyncio
     async def test_complete_already_done_period(self, mock_task, mock_db, user):
         """Attempting to complete an already-completed task should raise 409."""
         mock_task.is_completed_this_period = True

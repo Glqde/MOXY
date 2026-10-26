@@ -43,6 +43,10 @@ logger = structlog.get_logger(__name__)
 RESET_BATCH_SIZE = 500
 
 
+def _shorten(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 class TaskService:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -258,7 +262,8 @@ class TaskService:
             Notification(
                 user_id=member_id,
                 type=NotificationType.task_completed,
-                title=f"{task.emoji} {task.title} completed",
+                # Notification titles are VARCHAR(200): leave room for emoji + " completed"
+                title=f"{task.emoji} {_shorten(task.title, 178)} completed",
                 body=f"{user.full_name} completed this task",
                 actor_id=user.id,
                 group_id=task.group_id,
