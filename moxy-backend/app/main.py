@@ -10,6 +10,7 @@ import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -111,6 +112,11 @@ def create_app() -> FastAPI:
 
         try:
             response = await call_next(request)
+        except DataError as exc:
+            # Input the database can't store (bad characters, too long). The
+            # schemas should catch these first; this keeps any gap a 400
+            logger.warning("db.data_error", path=request.url.path, error=str(exc.orig))
+            response = JSONResponse(status_code=400, content={"detail": "Some of that input couldn't be saved"})
         except Exception as exc:
             # Handled here, inside CORSMiddleware: Starlette's outermost error
             # handler answers without CORS headers, which browsers report as

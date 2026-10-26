@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuthStore, useUIStore, usePresenceStore, useToastStore } from "@/store";
 import { playSound } from "@/lib/sounds";
+import { acceptCompleteClick } from "@/lib/completeGuard";
 import { confirmAction } from "@/components/ui/ConfirmDialog";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -218,7 +219,7 @@ function TaskCard({ task, groupId, groupColor, onEdit, onDelete }: {
   const isUndoing = undoMutation.isPending || localUndoing;   // ← add this
 
   const handleComplete = async () => {
-    if (done || isCompleting) return;
+    if (done || isCompleting || !acceptCompleteClick()) return;
     setLocalCompleting(true);
     try {
       await completeMutation.mutateAsync({ taskId: task.id });
